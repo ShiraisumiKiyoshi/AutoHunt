@@ -17,10 +17,29 @@ FFXIV 国服 Dalamud 自动狩猎插件。作者：白泉澈
 | Lifestream | 跨地图传送 | 推荐 |
 | Teleporter | 传送支持 | 推荐 |
 
-## 安装（开发者方式）
+## 安装
 
-1. 将 `dist/` 目录下所有文件复制到 XIVLauncherCN 的开发者插件目录，或：
-2. 使用 Dalamud 的 `/xldev` 窗口 → Load Dev Plugin 加载本项目的 `AutoHunt.dll`
+### 方式一：自定义插件仓库（推荐）
+
+1. 游戏内输入 `/xllang` 确认语言为中文，打开卫月设置（`/xlsettings`）→ **实验功能** 标签页
+2. 在 **自定义插件仓库** 一栏填入以下 URL 并勾选启用：
+
+```
+https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/pluginmaster.json
+```
+
+3. 保存后打开插件安装器（`/xlplugins`），在"未安装"或第三方仓库分类中找到 **AutoHunt** 安装即可
+4. 若 raw.githubusercontent.com 无法直连，可改用镜像地址：
+
+```
+https://cdn.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/pluginmaster.json
+```
+
+（镜像有约 12 小时缓存，更新会延迟）
+
+### 方式二：开发者模式加载
+
+将 `dist/` 目录下所有文件复制到任意文件夹，或直接用 Dalamud 的 `/xldev` 窗口 → Load Dev Plugin 加载本项目的 `AutoHunt.dll`。
 
 详细说明见 [dist/安装说明.md](dist/安装说明.md)。
 
