@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang='zh-CN'>
+<head>
+<meta charset='UTF-8'>
+<title>FFXIV 国服狩猎怪列表（AutoHunt 狩猎怪库）</title>
+<style>
+  body { font-family: 'Microsoft YaHei', system-ui, sans-serif; background:#f5f6fa; margin:0; padding:24px; color:#2a2f3a; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#7a8296; font-size:13px; margin-bottom:16px; }
+  .toolbar { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
+  input[type=text] { padding:8px 12px; border:1px solid #d5d9e2; border-radius:8px; font-size:14px; width:240px; }
+  button { padding:8px 16px; border:1px solid #d5d9e2; background:#fff; border-radius:8px; cursor:pointer; font-size:14px; }
+  button.active { background:#3b6fe0; color:#fff; border-color:#3b6fe0; }
+  .stat { font-size:13px; color:#7a8296; margin-left:auto; }
+  table { border-collapse:collapse; width:100%; background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  th, td { padding:8px 14px; text-align:left; border-bottom:1px solid #eef0f4; font-size:14px; }
+  th { background:#eef1f7; font-weight:600; position:sticky; top:0; }
+  tr:hover td { background:#f7f9fd; }
+  td.id { color:#9aa2b5; width:110px; }
+  .rank { display:inline-block; min-width:22px; text-align:center; font-weight:700; font-size:12px; border-radius:5px; padding:2px 7px; color:#fff; }
+  .r1 { background:/; } .r2 { background:/; } .r3 { background:/; }
+  .hint { margin-top:12px; font-size:12px; color:#9aa2b5; line-height:1.7; }
+</style>
+</head>
+<body>
+<h1>FFXIV 国服狩猎怪列表</h1>
+<div class='sub'>数据来源：本机游戏数据 NotoriousMonster 表（中文简体）· 按 NameId 去重后共 207 只 · 与插件「狩猎怪库」计数一致</div>
+<div class='toolbar'>
+  <input type='text' id='q' placeholder='搜索怪物名…'>
+  <button data-r='0' class='active'>全部 (207)</button>
+  <button data-r='3'>S 级 (50)</button>
+  <button data-r='2'>A 级 (77)</button>
+  <button data-r='1'>B 级 (80)</button>
+  <span class='stat' id='stat'></span>
+</div>
+<table>
+<thead><tr><th>RowId (NameId)</th><th>等级</th><th>怪物名称</th></tr></thead>
+<tbody id='tb'>
+<tr><td class='id'>131</td><td><span class='rank r3' data-r='3'>S</span></td><td>阿格拉俄珀</td></tr>
+<tr><td class='id'>51</td><td><span class='rank r3' data-r='3'>S</span></td><td>阿格里帕</td></tr>
+<tr><td class='id'>196</td><td><span class='rank r3' data-r='3'>S</span></td><td>阿姆斯特朗</td></tr>
+<tr><td class='id'>21</td><td><span class='rank r3' data-r='3'>S</span></td><td>巴拉乌尔</td></tr>
+<tr><td class='id'>176</td><td><span class='rank r3' data-r='3'>S</span></td><td>布弗鲁</td></tr>
+<tr><td class='id'>18</td><td><span class='rank r3' data-r='3'>S</span></td><td>布隆特斯</td></tr>
+<tr><td class='id'>66</td><td><span class='rank r3' data-r='3'>S</span></td><td>苍白骑士</td></tr>
+<tr><td class='id'>206</td><td><span class='rank r3' data-r='3'>S</span></td><td>沉思之物</td></tr>
+<tr><td class='id'>146</td><td><span class='rank r3' data-r='3'>S</span></td><td>得到宽恕的叛乱</td></tr>
+<tr><td class='id'>121</td><td><span class='rank r3' data-r='3'>S</span></td><td>得到宽恕的炫学</td></tr>
+<tr><td class='id'>126</td><td><span class='rank r3' data-r='3'>S</span></td><td>多智兽</td></tr>
+<tr><td class='id'>9</td><td><span class='rank r3' data-r='3'>S</span></td><td>夺心魔</td></tr>
+<tr><td class='id'>216</td><td><span class='rank r3' data-r='3'>S</span></td><td>俄菲翁尼厄斯</td></tr>
+<tr><td class='id'>71</td><td><span class='rank r3' data-r='3'>S</span></td><td>刚德瑞瓦</td></tr>
+<tr><td class='id'>33</td><td><span class='rank r3' data-r='3'>S</span></td><td>咕尔呱洛斯</td></tr>
+<tr><td class='id'>141</td><td><span class='rank r3' data-r='3'>S</span></td><td>顾尼图</td></tr>
+<tr><td class='id'>30</td><td><span class='rank r3' data-r='3'>S</span></td><td>护土精灵</td></tr>
+<tr><td class='id'>39</td><td><span class='rank r3' data-r='3'>S</span></td><td>火愤牛</td></tr>
+<tr><td class='id'>76</td><td><span class='rank r3' data-r='3'>S</span></td><td>极乐鸟</td></tr>
+<tr><td class='id'>36</td><td><span class='rank r3' data-r='3'>S</span></td><td>伽洛克</td></tr>
+<tr><td class='id'>91</td><td><span class='rank r3' data-r='3'>S</span></td><td>伽马</td></tr>
+<tr><td class='id'>86</td><td><span class='rank r3' data-r='3'>S</span></td><td>巨大鳐</td></tr>
+<tr><td class='id'>56</td><td><span class='rank r3' data-r='3'>S</span></td><td>凯撒贝希摩斯</td></tr>
+<tr><td class='id'>181</td><td><span class='rank r3' data-r='3'>S</span></td><td>克尔</td></tr>
+<tr><td class='id'>3</td><td><span class='rank r3' data-r='3'>S</span></td><td>雷德罗巨蛇</td></tr>
+<tr><td class='id'>116</td><td><span class='rank r3' data-r='3'>S</span></td><td>戾虫</td></tr>
+<tr><td class='id'>81</td><td><span class='rank r3' data-r='3'>S</span></td><td>卢克洛塔</td></tr>
+<tr><td class='id'>42</td><td><span class='rank r3' data-r='3'>S</span></td><td>南迪</td></tr>
+<tr><td class='id'>256</td><td><span class='rank r3' data-r='3'>S</span></td><td>内尤佐缇</td></tr>
+<tr><td class='id'>45</td><td><span class='rank r3' data-r='3'>S</span></td><td>牛头黑神</td></tr>
+<tr><td class='id'>24</td><td><span class='rank r3' data-r='3'>S</span></td><td>努纽努维</td></tr>
+<tr><td class='id'>106</td><td><span class='rank r3' data-r='3'>S</span></td><td>爬骨怪龙</td></tr>
+<tr><td class='id'>186</td><td><span class='rank r3' data-r='3'>S</span></td><td>颇胝迦</td></tr>
+<tr><td class='id'>12</td><td><span class='rank r3' data-r='3'>S</span></td><td>千竿口花希达</td></tr>
+<tr><td class='id'>48</td><td><span class='rank r3' data-r='3'>S</span></td><td>萨法特</td></tr>
+<tr><td class='id'>266</td><td><span class='rank r3' data-r='3'>S</span></td><td>山谢亚</td></tr>
+<tr><td class='id'>61</td><td><span class='rank r3' data-r='3'>S</span></td><td>神穆尔鸟</td></tr>
+<tr><td class='id'>241</td><td><span class='rank r3' data-r='3'>S</span></td><td>水晶化身之王</td></tr>
+<tr><td class='id'>286</td><td><span class='rank r3' data-r='3'>S</span></td><td>天气预报机器人</td></tr>
+<tr><td class='id'>6</td><td><span class='rank r3' data-r='3'>S</span></td><td>乌尔伽鲁</td></tr>
+<tr><td class='id'>96</td><td><span class='rank r3' data-r='3'>S</span></td><td>兀鲁忽乃朝鲁</td></tr>
+<tr><td class='id'>226</td><td><span class='rank r3' data-r='3'>S</span></td><td>狭缝</td></tr>
+<tr><td class='id'>276</td><td><span class='rank r3' data-r='3'>S</span></td><td>先驱勇士 阿提卡斯</td></tr>
+<tr><td class='id'>15</td><td><span class='rank r3' data-r='3'>S</span></td><td>虚无探索者</td></tr>
+<tr><td class='id'>111</td><td><span class='rank r3' data-r='3'>S</span></td><td>盐和光</td></tr>
+<tr><td class='id'>236</td><td><span class='rank r3' data-r='3'>S</span></td><td>厌忌之人 奇里格</td></tr>
+<tr><td class='id'>246</td><td><span class='rank r3' data-r='3'>S</span></td><td>伊努索奇</td></tr>
+<tr><td class='id'>136</td><td><span class='rank r3' data-r='3'>S</span></td><td>伊休妲</td></tr>
+<tr><td class='id'>27</td><td><span class='rank r3' data-r='3'>S</span></td><td>蚓螈巨虫</td></tr>
+<tr><td class='id'>101</td><td><span class='rank r3' data-r='3'>S</span></td><td>优昙婆罗花</td></tr>
+<tr><td class='id'>70</td><td><span class='rank r2' data-r='2'>A</span></td><td>阿伽托斯</td></tr>
+<tr><td class='id'>14</td><td><span class='rank r2' data-r='2'>A</span></td><td>阿列刻特利昂</td></tr>
+<tr><td class='id'>264</td><td><span class='rank r2' data-r='2'>A</span></td><td>艾海海陶瓦泡</td></tr>
+<tr><td class='id'>90</td><td><span class='rank r2' data-r='2'>A</span></td><td>安迦达</td></tr>
+<tr><td class='id'>99</td><td><span class='rank r2' data-r='2'>A</span></td><td>奥迦斯</td></tr>
+<tr><td class='id'>140</td><td><span class='rank r2' data-r='2'>A</span></td><td>巴力</td></tr>
+<tr><td class='id'>214</td><td><span class='rank r2' data-r='2'>A</span></td><td>瓣齿鲨</td></tr>
+<tr><td class='id'>130</td><td><span class='rank r2' data-r='2'>A</span></td><td>保尔迪雅</td></tr>
+<tr><td class='id'>69</td><td><span class='rank r2' data-r='2'>A</span></td><td>布涅</td></tr>
+<tr><td class='id'>29</td><td><span class='rank r2' data-r='2'>A</span></td><td>丑男子 沃迦加</td></tr>
+<tr><td class='id'>84</td><td><span class='rank r2' data-r='2'>A</span></td><td>船幽灵</td></tr>
+<tr><td class='id'>275</td><td><span class='rank r2' data-r='2'>A</span></td><td>多变装置</td></tr>
+<tr><td class='id'>80</td><td><span class='rank r2' data-r='2'>A</span></td><td>恶臭狂花</td></tr>
+<tr><td class='id'>74</td><td><span class='rank r2' data-r='2'>A</span></td><td>恩克拉多斯</td></tr>
+<tr><td class='id'>225</td><td><span class='rank r2' data-r='2'>A</span></td><td>凡·艾尔</td></tr>
+<tr><td class='id'>110</td><td><span class='rank r2' data-r='2'>A</span></td><td>泛光晶体</td></tr>
+<tr><td class='id'>26</td><td><span class='rank r2' data-r='2'>A</span></td><td>菲兰德的遗火</td></tr>
+<tr><td class='id'>104</td><td><span class='rank r2' data-r='2'>A</span></td><td>弗克施泰因</td></tr>
+<tr><td class='id'>2</td><td><span class='rank r2' data-r='2'>A</span></td><td>弗内乌斯</td></tr>
+<tr><td class='id'>8</td><td><span class='rank r2' data-r='2'>A</span></td><td>盖得</td></tr>
+<tr><td class='id'>135</td><td><span class='rank r2' data-r='2'>A</span></td><td>格拉斯曼</td></tr>
+<tr><td class='id'>215</td><td><span class='rank r2' data-r='2'>A</span></td><td>固兰盖奇</td></tr>
+<tr><td class='id'>85</td><td><span class='rank r2' data-r='2'>A</span></td><td>鬼观梦</td></tr>
+<tr><td class='id'>274</td><td><span class='rank r2' data-r='2'>A</span></td><td>海休瓦拉</td></tr>
+<tr><td class='id'>195</td><td><span class='rank r2' data-r='2'>A</span></td><td>黑杨树精</td></tr>
+<tr><td class='id'>174</td><td><span class='rank r2' data-r='2'>A</span></td><td>胡睹</td></tr>
+<tr><td class='id'>17</td><td><span class='rank r2' data-r='2'>A</span></td><td>花舞仙人刺</td></tr>
+<tr><td class='id'>255</td><td><span class='rank r2' data-r='2'>A</span></td><td>幻煌鸟</td></tr>
+<tr><td class='id'>64</td><td><span class='rank r2' data-r='2'>A</span></td><td>机工兵 斯利普金克斯</td></tr>
+<tr><td class='id'>94</td><td><span class='rank r2' data-r='2'>A</span></td><td>基里麦卡拉</td></tr>
+<tr><td class='id'>44</td><td><span class='rank r2' data-r='2'>A</span></td><td>角祖</td></tr>
+<tr><td class='id'>244</td><td><span class='rank r2' data-r='2'>A</span></td><td>惊雨蟾蜍</td></tr>
+<tr><td class='id'>265</td><td><span class='rank r2' data-r='2'>A</span></td><td>凯海尼海亚麦尤伊</td></tr>
+<tr><td class='id'>79</td><td><span class='rank r2' data-r='2'>A</span></td><td>坎帕提</td></tr>
+<tr><td class='id'>50</td><td><span class='rank r2' data-r='2'>A</span></td><td>库雷亚</td></tr>
+<tr><td class='id'>55</td><td><span class='rank r2' data-r='2'>A</span></td><td>卢芭</td></tr>
+<tr><td class='id'>139</td><td><span class='rank r2' data-r='2'>A</span></td><td>卢莎卡</td></tr>
+<tr><td class='id'>47</td><td><span class='rank r2' data-r='2'>A</span></td><td>马拉克</td></tr>
+<tr><td class='id'>124</td><td><span class='rank r2' data-r='2'>A</span></td><td>马利克巨人掌</td></tr>
+<tr><td class='id'>109</td><td><span class='rank r2' data-r='2'>A</span></td><td>马希沙</td></tr>
+<tr><td class='id'>41</td><td><span class='rank r2' data-r='2'>A</span></td><td>玛贝利</td></tr>
+<tr><td class='id'>20</td><td><span class='rank r2' data-r='2'>A</span></td><td>玛赫斯</td></tr>
+<tr><td class='id'>285</td><td><span class='rank r2' data-r='2'>A</span></td><td>猫眼</td></tr>
+<tr><td class='id'>54</td><td><span class='rank r2' data-r='2'>A</span></td><td>米勒卡</td></tr>
+<tr><td class='id'>194</td><td><span class='rank r2' data-r='2'>A</span></td><td>密涅瓦</td></tr>
+<tr><td class='id'>35</td><td><span class='rank r2' data-r='2'>A</span></td><td>魔导地狱爪</td></tr>
+<tr><td class='id'>204</td><td><span class='rank r2' data-r='2'>A</span></td><td>慕斯公主</td></tr>
+<tr><td class='id'>38</td><td><span class='rank r2' data-r='2'>A</span></td><td>纳恩</td></tr>
+<tr><td class='id'>114</td><td><span class='rank r2' data-r='2'>A</span></td><td>纳克拉维</td></tr>
+<tr><td class='id'>115</td><td><span class='rank r2' data-r='2'>A</span></td><td>纳里蓬</td></tr>
+<tr><td class='id'>235</td><td><span class='rank r2' data-r='2'>A</span></td><td>内丘奇霍</td></tr>
+<tr><td class='id'>129</td><td><span class='rank r2' data-r='2'>A</span></td><td>泥人</td></tr>
+<tr><td class='id'>100</td><td><span class='rank r2' data-r='2'>A</span></td><td>女王蜂</td></tr>
+<tr><td class='id'>234</td><td><span class='rank r2' data-r='2'>A</span></td><td>女王鹰蜂</td></tr>
+<tr><td class='id'>59</td><td><span class='rank r2' data-r='2'>A</span></td><td>派拉斯特暴龙</td></tr>
+<tr><td class='id'>245</td><td><span class='rank r2' data-r='2'>A</span></td><td>普库恰</td></tr>
+<tr><td class='id'>5</td><td><span class='rank r2' data-r='2'>A</span></td><td>千眼凝胶</td></tr>
+<tr><td class='id'>284</td><td><span class='rank r2' data-r='2'>A</span></td><td>清扫者萨莉</td></tr>
+<tr><td class='id'>105</td><td><span class='rank r2' data-r='2'>A</span></td><td>熔骨炎蝎</td></tr>
+<tr><td class='id'>60</td><td><span class='rank r2' data-r='2'>A</span></td><td>双足飞龙之王</td></tr>
+<tr><td class='id'>95</td><td><span class='rank r2' data-r='2'>A</span></td><td>硕姆</td></tr>
+<tr><td class='id'>65</td><td><span class='rank r2' data-r='2'>A</span></td><td>斯特拉斯</td></tr>
+<tr><td class='id'>175</td><td><span class='rank r2' data-r='2'>A</span></td><td>斯图希</td></tr>
+<tr><td class='id'>134</td><td><span class='rank r2' data-r='2'>A</span></td><td>苏帕伊</td></tr>
+<tr><td class='id'>11</td><td><span class='rank r2' data-r='2'>A</span></td><td>尾宿蛛蝎</td></tr>
+<tr><td class='id'>32</td><td><span class='rank r2' data-r='2'>A</span></td><td>乌克提希</td></tr>
+<tr><td class='id'>120</td><td><span class='rank r2' data-r='2'>A</span></td><td>乌拉坎</td></tr>
+<tr><td class='id'>75</td><td><span class='rank r2' data-r='2'>A</span></td><td>西斯尤</td></tr>
+<tr><td class='id'>89</td><td><span class='rank r2' data-r='2'>A</span></td><td>象魔修罗</td></tr>
+<tr><td class='id'>119</td><td><span class='rank r2' data-r='2'>A</span></td><td>小小杀手</td></tr>
+<tr><td class='id'>125</td><td><span class='rank r2' data-r='2'>A</span></td><td>休格尔</td></tr>
+<tr><td class='id'>185</td><td><span class='rank r2' data-r='2'>A</span></td><td>须羯里婆</td></tr>
+<tr><td class='id'>254</td><td><span class='rank r2' data-r='2'>A</span></td><td>血鸣鼠</td></tr>
+<tr><td class='id'>224</td><td><span class='rank r2' data-r='2'>A</span></td><td>伊塔总领</td></tr>
+<tr><td class='id'>184</td><td><span class='rank r2' data-r='2'>A</span></td><td>尤兰</td></tr>
+<tr><td class='id'>205</td><td><span class='rank r2' data-r='2'>A</span></td><td>月面仙人刺女王</td></tr>
+<tr><td class='id'>23</td><td><span class='rank r2' data-r='2'>A</span></td><td>札尼戈</td></tr>
+<tr><td class='id'>52</td><td><span class='rank r1' data-r='1'>B</span></td><td>阿尔提克</td></tr>
+<tr><td class='id'>93</td><td><span class='rank r1' data-r='1'>B</span></td><td>阿苏黄</td></tr>
+<tr><td class='id'>37</td><td><span class='rank r1' data-r='1'>B</span></td><td>暗盔魔蟹</td></tr>
+<tr><td class='id'>16</td><td><span class='rank r1' data-r='1'>B</span></td><td>奥弗杰恩</td></tr>
+<tr><td class='id'>98</td><td><span class='rank r1' data-r='1'>B</span></td><td>奥祖鲁姆</td></tr>
+<tr><td class='id'>1</td><td><span class='rank r1' data-r='1'>B</span></td><td>白鬼鼠王</td></tr>
+<tr><td class='id'>118</td><td><span class='rank r1' data-r='1'>B</span></td><td>不屈号</td></tr>
+<tr><td class='id'>103</td><td><span class='rank r1' data-r='1'>B</span></td><td>布卡卜</td></tr>
+<tr><td class='id'>63</td><td><span class='rank r1' data-r='1'>B</span></td><td>布拉巨猿</td></tr>
+<tr><td class='id'>123</td><td><span class='rank r1' data-r='1'>B</span></td><td>残虐杂技师</td></tr>
+<tr><td class='id'>172</td><td><span class='rank r1' data-r='1'>B</span></td><td>草贤人</td></tr>
+<tr><td class='id'>122</td><td><span class='rank r1' data-r='1'>B</span></td><td>大井巨虫</td></tr>
+<tr><td class='id'>87</td><td><span class='rank r1' data-r='1'>B</span></td><td>大太</td></tr>
+<tr><td class='id'>142</td><td><span class='rank r1' data-r='1'>B</span></td><td>得到宽恕的流言</td></tr>
+<tr><td class='id'>222</td><td><span class='rank r1' data-r='1'>B</span></td><td>等级作弊仪</td></tr>
+<tr><td class='id'>283</td><td><span class='rank r1' data-r='1'>B</span></td><td>第十三个孩子</td></tr>
+<tr><td class='id'>127</td><td><span class='rank r1' data-r='1'>B</span></td><td>杜莫伊</td></tr>
+<tr><td class='id'>73</td><td><span class='rank r1' data-r='1'>B</span></td><td>飞舞翼 萨努瓦力</td></tr>
+<tr><td class='id'>232</td><td><span class='rank r1' data-r='1'>B</span></td><td>疯狂龙舌兰</td></tr>
+<tr><td class='id'>273</td><td><span class='rank r1' data-r='1'>B</span></td><td>高康特</td></tr>
+<tr><td class='id'>243</td><td><span class='rank r1' data-r='1'>B</span></td><td>格沃佐拜柯拜</td></tr>
+<tr><td class='id'>83</td><td><span class='rank r1' data-r='1'>B</span></td><td>姑获鸟</td></tr>
+<tr><td class='id'>57</td><td><span class='rank r1' data-r='1'>B</span></td><td>骨颌彗星兵</td></tr>
+<tr><td class='id'>128</td><td><span class='rank r1' data-r='1'>B</span></td><td>狐首虺</td></tr>
+<tr><td class='id'>28</td><td><span class='rank r1' data-r='1'>B</span></td><td>花林女郎</td></tr>
+<tr><td class='id'>193</td><td><span class='rank r1' data-r='1'>B</span></td><td>皇帝的玫瑰</td></tr>
+<tr><td class='id'>4</td><td><span class='rank r1' data-r='1'>B</span></td><td>击刺魔蜂索菲</td></tr>
+<tr><td class='id'>19</td><td><span class='rank r1' data-r='1'>B</span></td><td>加特林针鼹</td></tr>
+<tr><td class='id'>82</td><td><span class='rank r1' data-r='1'>B</span></td><td>剑豪 刑具</td></tr>
+<tr><td class='id'>182</td><td><span class='rank r1' data-r='1'>B</span></td><td>金刚鸠摩罗</td></tr>
+<tr><td class='id'>68</td><td><span class='rank r1' data-r='1'>B</span></td><td>惊慌稻草龙</td></tr>
+<tr><td class='id'>202</td><td><span class='rank r1' data-r='1'>B</span></td><td>巨月蚤</td></tr>
+<tr><td class='id'>92</td><td><span class='rank r1' data-r='1'>B</span></td><td>俱利摩</td></tr>
+<tr><td class='id'>262</td><td><span class='rank r1' data-r='1'>B</span></td><td>绝妙圆扇刺</td></tr>
+<tr><td class='id'>7</td><td><span class='rank r1' data-r='1'>B</span></td><td>君王鬼蜻蜓</td></tr>
+<tr><td class='id'>177</td><td><span class='rank r1' data-r='1'>B</span></td><td>克尔的侍从</td></tr>
+<tr><td class='id'>53</td><td><span class='rank r1' data-r='1'>B</span></td><td>克鲁泽</td></tr>
+<tr><td class='id'>31</td><td><span class='rank r1' data-r='1'>B</span></td><td>宽耳凶蝠</td></tr>
+<tr><td class='id'>77</td><td><span class='rank r1' data-r='1'>B</span></td><td>利西达斯</td></tr>
+<tr><td class='id'>252</td><td><span class='rank r1' data-r='1'>B</span></td><td>绿叶飞花 哈杜加</td></tr>
+<tr><td class='id'>107</td><td><span class='rank r1' data-r='1'>B</span></td><td>玛涅斯</td></tr>
+<tr><td class='id'>40</td><td><span class='rank r1' data-r='1'>B</span></td><td>米腊德罗斯蜂鸟</td></tr>
+<tr><td class='id'>173</td><td><span class='rank r1' data-r='1'>B</span></td><td>哞哞</td></tr>
+<tr><td class='id'>46</td><td><span class='rank r1' data-r='1'>B</span></td><td>纳乌尔</td></tr>
+<tr><td class='id'>112</td><td><span class='rank r1' data-r='1'>B</span></td><td>浓毛兽</td></tr>
+<tr><td class='id'>223</td><td><span class='rank r1' data-r='1'>B</span></td><td>欧斯克·雷伊</td></tr>
+<tr><td class='id'>133</td><td><span class='rank r1' data-r='1'>B</span></td><td>帕查玛玛</td></tr>
+<tr><td class='id'>108</td><td><span class='rank r1' data-r='1'>B</span></td><td>奇洼</td></tr>
+<tr><td class='id'>132</td><td><span class='rank r1' data-r='1'>B</span></td><td>启灵果</td></tr>
+<tr><td class='id'>203</td><td><span class='rank r1' data-r='1'>B</span></td><td>起源石</td></tr>
+<tr><td class='id'>78</td><td><span class='rank r1' data-r='1'>B</span></td><td>全能机甲</td></tr>
+<tr><td class='id'>117</td><td><span class='rank r1' data-r='1'>B</span></td><td>三合鸟儿</td></tr>
+<tr><td class='id'>88</td><td><span class='rank r1' data-r='1'>B</span></td><td>闪雷击 鱼雷</td></tr>
+<tr><td class='id'>102</td><td><span class='rank r1' data-r='1'>B</span></td><td>蛇仆蚂蜓</td></tr>
+<tr><td class='id'>237</td><td><span class='rank r1' data-r='1'>B</span></td><td>水晶化身</td></tr>
+<tr><td class='id'>49</td><td><span class='rank r1' data-r='1'>B</span></td><td>水蛭王</td></tr>
+<tr><td class='id'>72</td><td><span class='rank r1' data-r='1'>B</span></td><td>斯奎克</td></tr>
+<tr><td class='id'>67</td><td><span class='rank r1' data-r='1'>B</span></td><td>斯奇塔利斯</td></tr>
+<tr><td class='id'>22</td><td><span class='rank r1' data-r='1'>B</span></td><td>死灰复燃的阿尔宾</td></tr>
+<tr><td class='id'>58</td><td><span class='rank r1' data-r='1'>B</span></td><td>提克斯塔</td></tr>
+<tr><td class='id'>10</td><td><span class='rank r1' data-r='1'>B</span></td><td>天玑巨熊</td></tr>
+<tr><td class='id'>137</td><td><span class='rank r1' data-r='1'>B</span></td><td>徒手抓鱼 基乌嘶·渊斯</td></tr>
+<tr><td class='id'>263</td><td><span class='rank r1' data-r='1'>B</span></td><td>乌克提纳</td></tr>
+<tr><td class='id'>43</td><td><span class='rank r1' data-r='1'>B</span></td><td>巫刻猎鹫</td></tr>
+<tr><td class='id'>213</td><td><span class='rank r1' data-r='1'>B</span></td><td>肖科莫</td></tr>
+<tr><td class='id'>282</td><td><span class='rank r1' data-r='1'>B</span></td><td>携宝精</td></tr>
+<tr><td class='id'>253</td><td><span class='rank r1' data-r='1'>B</span></td><td>休提因别克</td></tr>
+<tr><td class='id'>34</td><td><span class='rank r1' data-r='1'>B</span></td><td>血腥玛丽</td></tr>
+<tr><td class='id'>183</td><td><span class='rank r1' data-r='1'>B</span></td><td>伊罗婆缇</td></tr>
+<tr><td class='id'>113</td><td><span class='rank r1' data-r='1'>B</span></td><td>伊兹帕帕洛特尔</td></tr>
+<tr><td class='id'>62</td><td><span class='rank r1' data-r='1'>B</span></td><td>翼肢鲎</td></tr>
+<tr><td class='id'>13</td><td><span class='rank r1' data-r='1'>B</span></td><td>阴沟毒液</td></tr>
+<tr><td class='id'>97</td><td><span class='rank r1' data-r='1'>B</span></td><td>影中暗 雅弥尼</td></tr>
+<tr><td class='id'>25</td><td><span class='rank r1' data-r='1'>B</span></td><td>永恒不灭的菲兰德副耀士</td></tr>
+<tr><td class='id'>212</td><td><span class='rank r1' data-r='1'>B</span></td><td>尤姆卡克斯</td></tr>
+<tr><td class='id'>272</td><td><span class='rank r1' data-r='1'>B</span></td><td>斩首魔鸟</td></tr>
+<tr><td class='id'>192</td><td><span class='rank r1' data-r='1'>B</span></td><td>战争贩子</td></tr>
+<tr><td class='id'>138</td><td><span class='rank r1' data-r='1'>B</span></td><td>助祭大蟹</td></tr>
+<tr><td class='id'>242</td><td><span class='rank r1' data-r='1'>B</span></td><td>撞角头</td></tr>
+<tr><td class='id'>233</td><td><span class='rank r1' data-r='1'>B</span></td><td>卓伯卡布拉</td></tr>
+</tbody>
+</table>
+<div class='hint'>说明：<br>
+· 原始表 292 行，同一只怪在多个分区各有一条记录（如「得到宽恕的流言」约 20 条），去重后 207 只——插件显示 207 只已加载是正确的。<br>
+· 插件 v2.0.2.0+ 默认只锁定 A 级与 S 级（可在设置中开启包含 B 级）。RowId 即游戏内的 NameId。</div>
+<script>
+const q = document.getElementById('q'), tb = document.getElementById('tb'), stat = document.getElementById('stat');
+const all = Array.from(tb.rows);
+let filterRank = 0;
+function apply() {
+  const kw = q.value.trim().toLowerCase();
+  let shown = 0;
+  for (const tr of all) {
+    const rank = +tr.children[1].firstChild.dataset.r;
+    const name = tr.children[2].textContent;
+    const ok = (!filterRank || rank === filterRank) && (!kw || name.toLowerCase().includes(kw));
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }
+  stat.textContent = '显示 ' + shown + ' 只';
+}
+q.addEventListener('input', apply);
+document.querySelectorAll('button[data-r]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('button[data-r]').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  filterRank = +b.dataset.r;
+  apply();
+}));
+apply();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# 构建产物
+bin/
+obj/
+*.user
+*.suo
+
+# 备份
+backup/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# 临时文件
+*.tmp
+*.log
