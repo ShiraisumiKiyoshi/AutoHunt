@@ -114,6 +114,7 @@ internal static unsafe class InstanceController
     /// 参与判定（满足任一）：
     ///  - 怪物是自己的当前目标（我们正在打它）；
     ///  - 怪物的目标是玩家自己 / 队友 / 玩家的宠物或陆行鸟。
+    /// 计数规则：只有狩猎怪（HuntMobDatabase 判定）的击杀才计入副本区切换计数。
     /// </summary>
     private static void ScanKills()
     {
@@ -155,11 +156,12 @@ internal static unsafe class InstanceController
             }
             else
             {
-                // 死亡：若之前参与过且未计数 → 计数
+                // 死亡：若之前参与过且未计数 → 尝试计数
                 if (engagedMobIds.Contains(npc.GameObjectId) && !countedMobIds.Contains(npc.GameObjectId))
                 {
                     countedMobIds.Add(npc.GameObjectId);
-                    OnMobKilled();
+                    // 只有狩猎怪才计入副本区击杀计数
+                    OnMobKilled(npc.GameObjectId, npc.NameId);
                 }
             }
         }
@@ -172,9 +174,32 @@ internal static unsafe class InstanceController
         }
     }
 
-    /// <summary>一只玩家参与的怪物被击杀后调用。</summary>
-    public static void OnMobKilled()
+    /// <summary>
+    /// 一只玩家参与的怪物被击杀后调用。
+    /// 通过 mobId 去重（防止 HuntController 和 ScanKills 双重计数），
+    /// 通过 nameId 判定是否为狩猎怪（非狩猎怪不计入副本区切换计数）。
+    /// </summary>
+    public static void OnMobKilled(ulong mobId = 0, uint nameId = 0)
     {
+        // 去重：同一只怪不重复计数
+        if (mobId != 0)
+        {
+            if (countedMobIds.Contains(mobId)) return;
+            countedMobIds.Add(mobId);
+        }
+
+        // 只有狩猎怪才计入副本区切换计数
+        bool isHunt = nameId != 0 && HuntMobDatabase.IsHuntMob(nameId, P.Config.IncludeBRank);
+        // nameId=0 时（HuntController 路径，目标已丢失无法获取 NameId）
+        // 回退：假设是狩猎怪（HuntController 只会选中狩猎怪）
+        bool countAsHunt = isHunt || nameId == 0;
+
+        if (!countAsHunt)
+        {
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 非狩猎怪击杀，不计入副本区计数 (NameId={nameId})");
+            return;
+        }
+
         killCount++;
         if (P.Config.Debug) PluginLog.Debug($"副本区击杀计数: {killCount}/{P.Config.KillsPerInstance}");
 
@@ -190,7 +215,7 @@ internal static unsafe class InstanceController
         var next = current >= count ? 1 : current + 1;
         pendingSwitchInstance = next;
 
-        Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只怪，等待车头发送新坐标后切换到 {next} 号副本区…");
+        Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，等待车头发送新坐标后切换到 {next} 号副本区…");
     }
 
     /// <summary>重置副本区记录（/ah reset）。</summary>

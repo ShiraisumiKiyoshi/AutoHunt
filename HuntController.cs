@@ -24,7 +24,8 @@ internal static unsafe class HuntController
         Arrived,        // 到达坐标，准备选怪
         Targeting,      // 寻找并选中狩猎怪
         Attacking,      // 已选中，等待血量下降到阈值
-        Dismounting,    // 血量达标，正在下坐骑
+        Descending,     // 血量达标，正在下降到地面（飞行悬停 → 地面）
+        Dismounting,    // 已到地面，正在下坐骑
         Outputting,     // 执行 /rotation Manual 输出中
         Finished,       // 怪物死亡，停止输出，回到 Idle
     }
@@ -56,7 +57,7 @@ internal static unsafe class HuntController
         if (target == null) return;
 
         // 如果正在输出中，先停止（车头发新坐标 = 当前怪已处理完或要换目标）
-        if (CurrentState == State.Outputting || CurrentState == State.Attacking || CurrentState == State.Dismounting)
+        if (CurrentState == State.Outputting || CurrentState == State.Attacking || CurrentState == State.Dismounting || CurrentState == State.Descending)
         {
             StopOutput();
         }
@@ -177,6 +178,10 @@ internal static unsafe class HuntController
 
             case State.Attacking:
                 UpdateAttacking();
+                break;
+
+            case State.Descending:
+                UpdateDescending();
                 break;
 
             case State.Dismounting:
@@ -448,10 +453,23 @@ internal static unsafe class HuntController
         {
             if (Player.Mounted && P.Config.AutoAttack)
             {
-                CurrentState = State.Dismounting;
-                dismountPending = true;
-                dismountStartTime = DateTime.Now;
-                Notify.Info($"目标血量 {CurrentTargetHpPercent:0}% ≤ {P.Config.DismountHpPercent:0}%，正在下坐骑…");
+                // 飞行中悬停在 ZOffset 高度，需要先降到地面再下坐骑
+                float heightDiff = Math.Abs(Player.Position.Y - target.Position.Y);
+                if (Player.CanFly && heightDiff > 5f)
+                {
+                    CurrentState = State.Descending;
+                    stateStartTime = DateTime.Now;
+                    navStarted = false;
+                    Notify.Info($"目标血量 {CurrentTargetHpPercent:0}% ≤ {P.Config.DismountHpPercent:0}%，正在下降到地面…");
+                }
+                else
+                {
+                    // 已在地面或不可飞行，直接下坐骑
+                    CurrentState = State.Dismounting;
+                    dismountPending = true;
+                    dismountStartTime = DateTime.Now;
+                    Notify.Info($"目标血量 {CurrentTargetHpPercent:0}% ≤ {P.Config.DismountHpPercent:0}%，正在下坐骑…");
+                }
             }
             else
             {
@@ -459,6 +477,74 @@ internal static unsafe class HuntController
                 CurrentState = State.Outputting;
                 StartOutput();
             }
+        }
+    }
+
+    /// <summary>
+    /// 下降阶段：从飞行悬停高度（ZOffset）下降到目标怪地面位置。
+    /// 使用 vnavmesh IPC 寻路到 (mob.X, mob.Y, mob.Z)，到地后转入 Dismounting。
+    /// </summary>
+    private static void UpdateDescending()
+    {
+        var target = Svc.Targets.Target as IBattleNpc;
+        if (target == null || target.IsDead)
+        {
+            // 目标丢失或已死，跳过下降直接进入下一阶段
+            S.VnavmeshIPC.StopPath();
+            CurrentState = State.Dismounting;
+            dismountPending = true;
+            dismountStartTime = DateTime.Now;
+            navStarted = false;
+            return;
+        }
+
+        var groundDest = new Vector3(target.Position.X, target.Position.Y, target.Position.Z);
+        float distY = Math.Abs(Player.Position.Y - groundDest.Y);
+        float distXZ = Vector2.Distance(
+            new Vector2(Player.Position.X, Player.Position.Z),
+            new Vector2(groundDest.X, groundDest.Z));
+
+        if (!navStarted)
+        {
+            navStarted = true;
+            S.VnavmeshIPC.StopPath();
+            S.VnavmeshIPC.TryPathfindAndMoveTo(groundDest, Player.CanFly);
+            lastPreciseRetry = DateTime.Now;
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 开始下降到地面: {groundDest} (当前 Y={Player.Position.Y:0.0}, 目标 Y={groundDest.Y:0.0})");
+        }
+
+        bool running = S.VnavmeshIPC.GetPathIsRunning();
+        bool finding = S.VnavmeshIPC.GetPathfindInProgress();
+
+        // 接近地面 → 进入下坐骑
+        if (distY < 5f && distXZ < 15f)
+        {
+            S.VnavmeshIPC.StopPath();
+            CurrentState = State.Dismounting;
+            dismountPending = true;
+            dismountStartTime = DateTime.Now;
+            navStarted = false;
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 已下降到地面 (Y={Player.Position.Y:0.0})，开始下坐骑");
+            return;
+        }
+
+        // 路径中断且未到地 → 3 秒重试
+        if (!running && !finding && (DateTime.Now - lastPreciseRetry).TotalSeconds > 3)
+        {
+            S.VnavmeshIPC.TryPathfindAndMoveTo(groundDest, Player.CanFly);
+            lastPreciseRetry = DateTime.Now;
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 重试下降寻路 (distY={distY:0.0}m, distXZ={distXZ:0.0}m)");
+        }
+
+        // 超时 15 秒：强制进入下坐骑（可能在地面附近卡住）
+        if ((DateTime.Now - stateStartTime).TotalSeconds > 15)
+        {
+            S.VnavmeshIPC.StopPath();
+            CurrentState = State.Dismounting;
+            dismountPending = true;
+            dismountStartTime = DateTime.Now;
+            navStarted = false;
+            Notify.Info("下降超时，强制下坐骑…");
         }
     }
 
@@ -533,7 +619,10 @@ internal static unsafe class HuntController
 
     private static void OnMobKilled()
     {
-        InstanceController.OnMobKilled();
+        var target = Svc.Targets.Target as IBattleNpc;
+        var mobId = target?.GameObjectId ?? 0;
+        var nameId = target?.NameId ?? 0;
+        InstanceController.OnMobKilled(mobId, nameId);
     }
 
     public static void Reset()
