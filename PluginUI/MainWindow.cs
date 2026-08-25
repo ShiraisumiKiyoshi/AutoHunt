@@ -125,5 +125,17 @@ public class MainWindow : ConfigWindow
             ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f),
                 $"  待切换: {InstanceController.PendingSwitchInstance} 号副本区（等待车头新坐标）");
         }
+
+        ImGui.Separator();
+        ImGui.TextUnformatted("依赖插件:");
+        foreach (var (label, feature, installed, required) in DependencyChecker.GetDependencyStatus())
+        {
+            var color = installed
+                ? new Vector4(0.35f, 0.85f, 0.45f, 1f)
+                : required
+                    ? new Vector4(1f, 0.35f, 0.35f, 1f)
+                    : new Vector4(1f, 0.8f, 0.2f, 1f);
+            ImGui.TextColored(color, $"  {(installed ? "√" : "×")} {label}{(required ? "（必需）" : "")} — {feature}");
+        }
     }
 }

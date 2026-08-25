@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.0.6.1",
+    "AssemblyVersion": "2.0.7.0",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区。依赖：vnavmesh、RotationSolver、Lifestream、Teleporter。",
     "ApplicableVersion": "any",
@@ -22,7 +22,7 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/latest.zip",
-    "LastUpdate": 1787656312,
-    "Changelog": "v2.0.6.1：修复飞行落地后没有真正下坐骑的问题（飞行中按键只触发自动降落，落地后需再按一次；现在会持续按键直到下坐骑，超时放宽到15秒）。"
+    "LastUpdate": 1787657602,
+    "Changelog": "v2.0.7.0：修复玩家过多导致目标丢失后不重新选中、不输出的问题（目标丢失后自动重选并继续流程）；新增依赖插件检测（启动时检查 vnavmesh/RotationSolver/Lifestream/Teleporter 并提示，状态页可见）。"
   }
 ]

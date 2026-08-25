@@ -51,10 +51,29 @@ public unsafe class AutoHunt : IDalamudPlugin
     /// <summary>主循环异常兜底：任何控制器异常只提示一次，不让异常反复打断 Update。</summary>
     private DateTime lastErrorNotify = DateTime.MinValue;
 
+    // 依赖插件检测：启动 10 秒后首次检查（等其他插件加载完成）；若发现缺失，60 秒时再复核一次（避免加载慢被误报）
+    private DateTime depCheckTime = DateTime.Now.AddSeconds(10);
+    private DateTime depRecheckTime = DateTime.MinValue;
+    private bool depChecked = false;
+
     private void Framework_Update(object framework)
     {
         try
         {
+            if (!depChecked && DateTime.Now >= depCheckTime)
+            {
+                depChecked = true;
+                if (DependencyChecker.CheckAndNotify())
+                {
+                    depRecheckTime = DateTime.Now.AddSeconds(50);
+                }
+            }
+            else if (depRecheckTime != DateTime.MinValue && DateTime.Now >= depRecheckTime)
+            {
+                depRecheckTime = DateTime.MinValue;
+                DependencyChecker.CheckAndNotify();
+            }
+
             if (!Player.Available) return;
             // IPC 服务未就绪（初始化失败/热重载竞态）时跳过本轮，避免 NullReferenceException
             if (S.LifestreamIPC == null || S.TeleporterIPC == null || S.VnavmeshIPC == null) return;

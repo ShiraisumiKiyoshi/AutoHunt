@@ -51,6 +51,12 @@ internal static unsafe class HuntController
     private static bool dismountPending = false;
     private static DateTime dismountStartTime = DateTime.MinValue;
 
+    // 目标追踪（防止玩家过多导致目标丢失后流程中断）
+    private static ulong lastTargetId = 0;
+    private static Vector3 lastTargetPos = Vector3.Zero;
+    private static DateTime targetLostSince = DateTime.MinValue;
+    private static DateTime lastRetargetNotify = DateTime.MinValue;
+
     /// <summary>收到新车头坐标时触发状态机。</summary>
     public static void OnNewCoordinate(TargetPosition target)
     {
@@ -68,6 +74,9 @@ internal static unsafe class HuntController
         dismountPending = false;
         preciseStarted = false;
         preciseDest = Vector3.Zero;
+        lastTargetId = 0;
+        lastTargetPos = Vector3.Zero;
+        targetLostSince = DateTime.MinValue;
 
         // 判断是否需要传送
         if (target.TerritoryId != Svc.ClientState.TerritoryType)
@@ -380,6 +389,8 @@ internal static unsafe class HuntController
             CurrentTargetName = huntMob.Name.TextValue;
             CurrentTargetRank = HuntMobDatabase.GetRankLabel(huntMob.NameId);
             CurrentTargetHpPercent = huntMob.CurrentHp / (float)huntMob.MaxHp * 100f;
+            TrackTarget(huntMob);
+            targetLostSince = DateTime.MinValue;
             CurrentState = State.Attacking;
             stateStartTime = DateTime.Now;
             Notify.Info($"已选中狩猎怪: [{CurrentTargetRank}] {CurrentTargetName} (HP {CurrentTargetHpPercent:0}%)");
@@ -414,6 +425,8 @@ internal static unsafe class HuntController
                 CurrentTargetName = huntMob.Name.TextValue;
                 CurrentTargetRank = HuntMobDatabase.GetRankLabel(huntMob.NameId);
                 CurrentTargetHpPercent = huntMob.CurrentHp / (float)huntMob.MaxHp * 100f;
+                TrackTarget(huntMob);
+                targetLostSince = DateTime.MinValue;
                 CurrentState = State.Attacking;
                 stateStartTime = DateTime.Now;
                 Notify.Info($"已选中狩猎怪: [{CurrentTargetRank}] {CurrentTargetName} (HP {CurrentTargetHpPercent:0}%)");
@@ -428,23 +441,42 @@ internal static unsafe class HuntController
         }
     }
 
-    /// <summary>攻击中：监测血量，低于阈值则下坐骑输出。</summary>
+    /// <summary>攻击中：监测血量，低于阈值则下坐骑输出。目标丢失时自动重新选中。</summary>
     private static void UpdateAttacking()
     {
         var target = Svc.Targets.Target as IBattleNpc;
-        if (target == null || target.IsDead)
+
+        // 目标死亡 → 结束
+        if (target != null && target.IsDead)
         {
-            // 目标丢失或死亡
-            if (target != null && target.IsDead)
-            {
-                OnMobKilled();
-            }
+            OnMobKilled();
             CurrentState = State.Finished;
             stateStartTime = DateTime.Now;
             StopOutput();
             return;
         }
 
+        // 目标丢失（玩家过多的场合怪物会被挤出对象表）→ 尝试重新选中
+        if (target == null)
+        {
+            if (targetLostSince == DateTime.MinValue)
+            {
+                targetLostSince = DateTime.Now;
+                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 攻击阶段目标丢失，尝试重新选中…");
+            }
+            TryRetarget();
+            if ((DateTime.Now - targetLostSince).TotalSeconds > 30)
+            {
+                Notify.Error("目标丢失超过30秒，放弃当前目标。");
+                CurrentState = State.Finished;
+                stateStartTime = DateTime.Now;
+                StopOutput();
+            }
+            return;
+        }
+
+        targetLostSince = DateTime.MinValue;
+        TrackTarget(target);
         CurrentTargetName = target.Name.TextValue;
         CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
 
@@ -487,18 +519,48 @@ internal static unsafe class HuntController
     private static void UpdateDescending()
     {
         var target = Svc.Targets.Target as IBattleNpc;
-        if (target == null || target.IsDead)
+
+        // 目标死亡 → 无需下降，直接结束
+        if (target != null && target.IsDead)
         {
-            // 目标丢失或已死，跳过下降直接进入下一阶段
             S.VnavmeshIPC.StopPath();
-            CurrentState = State.Dismounting;
-            dismountPending = true;
-            dismountStartTime = DateTime.Now;
-            navStarted = false;
+            OnMobKilled();
+            StopOutput();
+            CurrentState = State.Finished;
+            stateStartTime = DateTime.Now;
             return;
         }
 
-        var groundDest = new Vector3(target.Position.X, target.Position.Y, target.Position.Z);
+        Vector3 groundDest;
+        if (target != null)
+        {
+            TrackTarget(target);
+            groundDest = target.Position;
+        }
+        else
+        {
+            // 目标丢失：按最后记录的位置继续下降，同时尝试重新选中
+            if (targetLostSince == DateTime.MinValue)
+            {
+                targetLostSince = DateTime.Now;
+                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 下降阶段目标丢失，按最后位置继续下降并尝试重新选中…");
+            }
+            TryRetarget();
+            if (lastTargetPos != Vector3.Zero)
+            {
+                groundDest = lastTargetPos;
+            }
+            else
+            {
+                // 从未记录过位置（理论不会发生）：跳过下降直接下坐骑
+                S.VnavmeshIPC.StopPath();
+                CurrentState = State.Dismounting;
+                dismountPending = true;
+                dismountStartTime = DateTime.Now;
+                navStarted = false;
+                return;
+            }
+        }
         float distY = Math.Abs(Player.Position.Y - groundDest.Y);
         float distXZ = Vector2.Distance(
             new Vector2(Player.Position.X, Player.Position.Z),
@@ -589,25 +651,45 @@ internal static unsafe class HuntController
         }
     }
 
-    /// <summary>输出中：监测目标死亡。</summary>
+    /// <summary>输出中：监测目标死亡。目标丢失时保持输出并自动重新选中。</summary>
     private static void UpdateOutputting()
     {
         var target = Svc.Targets.Target as IBattleNpc;
-        if (target == null || target.IsDead)
+
+        // 目标死亡 → 停止输出
+        if (target != null && target.IsDead)
         {
-            if (target != null && target.IsDead)
-            {
-                OnMobKilled();
-            }
+            OnMobKilled();
             StopOutput();
             CurrentState = State.Finished;
             stateStartTime = DateTime.Now;
             Notify.Info($"狩猎怪 {CurrentTargetName} 已死亡，停止输出。");
+            return;
         }
-        else
+
+        // 目标丢失：保持输出开启，持续重新选中（重新选中后 RotationSolver 自动继续输出）
+        if (target == null)
         {
-            CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
+            if (targetLostSince == DateTime.MinValue)
+            {
+                targetLostSince = DateTime.Now;
+                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 输出阶段目标丢失，尝试重新选中…");
+            }
+            TryRetarget();
+            // 长时间无目标且周围已无存活狩猎怪 → 视为已击杀，结束输出
+            if ((DateTime.Now - targetLostSince).TotalSeconds > 60 && FindNearestHuntMob() == null)
+            {
+                Notify.Info("目标长时间丢失且周围无存活狩猎怪，视为已击杀，停止输出。");
+                StopOutput();
+                CurrentState = State.Finished;
+                stateStartTime = DateTime.Now;
+            }
+            return;
         }
+
+        targetLostSince = DateTime.MinValue;
+        TrackTarget(target);
+        CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
     }
 
     private static void StartOutput()
@@ -631,6 +713,42 @@ internal static unsafe class HuntController
         InstanceController.OnMobKilled(mobId, nameId);
     }
 
+    /// <summary>记录当前目标的 ID 与位置，供目标丢失后找回/继续下降用。</summary>
+    private static void TrackTarget(IBattleNpc target)
+    {
+        lastTargetId = target.GameObjectId;
+        lastTargetPos = target.Position;
+    }
+
+    /// <summary>
+    /// 目标丢失后重新选中（每秒尝试一次）：
+    /// 优先按记录的 GameObjectId 找回原目标，找不到再搜索最近的存活狩猎怪。
+    /// </summary>
+    private static void TryRetarget()
+    {
+        if (!EzThrottler.Throttle("WYHuntRetarget", 1000)) return;
+
+        IBattleNpc? mob = null;
+        if (lastTargetId != 0)
+            mob = Svc.Objects.FirstOrDefault(x => x.GameObjectId == lastTargetId) as IBattleNpc;
+        if (mob == null || mob.IsDead)
+            mob = FindNearestHuntMob();
+
+        if (mob == null) return;
+
+        Svc.Targets.Target = mob;
+        CurrentTargetName = mob.Name.TextValue;
+        CurrentTargetRank = HuntMobDatabase.GetRankLabel(mob.NameId);
+        CurrentTargetHpPercent = mob.CurrentHp / (float)mob.MaxHp * 100f;
+        TrackTarget(mob);
+        targetLostSince = DateTime.MinValue;
+        if ((DateTime.Now - lastRetargetNotify).TotalSeconds > 10)
+        {
+            lastRetargetNotify = DateTime.Now;
+            Notify.Info($"目标丢失，已重新选中: [{CurrentTargetRank}] {CurrentTargetName} (HP {CurrentTargetHpPercent:0}%)");
+        }
+    }
+
     public static void Reset()
     {
         CurrentState = State.Idle;
@@ -640,6 +758,9 @@ internal static unsafe class HuntController
         dismountPending = false;
         preciseStarted = false;
         preciseDest = Vector3.Zero;
+        lastTargetId = 0;
+        lastTargetPos = Vector3.Zero;
+        targetLostSince = DateTime.MinValue;
         CurrentTargetName = "";
         CurrentTargetRank = "";
         CurrentTargetHpPercent = 100f;
