@@ -516,8 +516,9 @@ internal static unsafe class HuntController
         bool running = S.VnavmeshIPC.GetPathIsRunning();
         bool finding = S.VnavmeshIPC.GetPathfindInProgress();
 
-        // 接近地面 → 进入下坐骑
-        if (distY < 5f && distXZ < 15f)
+        // 接近地面 → 进入下坐骑（要求真正贴地：Y 差 < 1.5m，或已脱离飞行状态）
+        bool grounded = !Svc.Condition[ConditionFlag.InFlight];
+        if (distXZ < 15f && (distY < 1.5f || (distY < 5f && grounded)))
         {
             S.VnavmeshIPC.StopPath();
             CurrentState = State.Dismounting;
@@ -548,7 +549,10 @@ internal static unsafe class HuntController
         }
     }
 
-    /// <summary>下坐骑流程。</summary>
+    /// <summary>下坐骑流程。
+    /// FFXIV 机制：飞行中按坐骑键只触发「自动降落」，落地后需再按一次才真正下坐骑。
+    /// 因此持续按坐骑键：飞行中第一下触发降落，落地后下一击完成下坐骑。
+    /// </summary>
     private static void UpdateDismounting()
     {
         if (!Player.Mounted)
@@ -560,8 +564,9 @@ internal static unsafe class HuntController
             return;
         }
 
-        // 尝试下坐骑
-        if (EzThrottler.Throttle("WYHuntDismount", 800))
+        // 每秒按一次坐骑键（避开动画锁）：
+        // 飞行中 → 触发自动降落；已落地 → 真正下坐骑
+        if (EzThrottler.Throttle("WYHuntDismount", 1000) && !Player.IsAnimationLocked)
         {
             var am = FFXIVClientStructs.FFXIV.Client.Game.ActionManager.Instance();
             if (am != null && am->GetActionStatus(FFXIVClientStructs.FFXIV.Client.Game.ActionType.GeneralAction, 9) == 0)
@@ -574,9 +579,10 @@ internal static unsafe class HuntController
             }
         }
 
-        // 超时兜底
-        if ((DateTime.Now - dismountStartTime).TotalSeconds > 5)
+        // 超时兜底：飞行自动降落约需 3~10 秒，给足 15 秒
+        if ((DateTime.Now - dismountStartTime).TotalSeconds > 15)
         {
+            Notify.Error("下坐骑超时（15秒），仍处于骑乘状态，直接开始输出。");
             dismountPending = false;
             CurrentState = State.Outputting;
             StartOutput();

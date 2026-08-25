@@ -2,7 +2,7 @@
   "Author": "白泉澈",
   "Name": "AutoHunt",
   "InternalName": "AutoHunt",
-  "AssemblyVersion": "2.0.6.0",
+  "AssemblyVersion": "2.0.6.1",
   "Punchline": "自动狩猎车助手",
   "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道（喊话/小队/猎人通讯蛋/跨服通讯蛋等）发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪，血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区。依赖：vnavmesh、RotationSolver、Lifestream、Teleporter。",
   "ApplicableVersion": "any",
