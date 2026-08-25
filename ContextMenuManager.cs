@@ -51,7 +51,7 @@ public class ContextMenuManager : IDisposable
         if (args.Target is not MenuTargetDefault mt || mt.TargetName == null) return;
         if (!ValidAddons.Contains(args.AddonName)) return;
 
-        var name = mt.TargetName;
+        var name = StripWorldSuffix(mt.TargetName);
         if (Conductor.IsValid && name == P.Config.ConductorName)
         {
             args.AddMenuItem(menuItemClear);
@@ -66,20 +66,45 @@ public class ContextMenuManager : IDisposable
     {
         if (args.Target is MenuTargetDefault mt && mt.TargetName != null)
         {
-            var name = mt.TargetName;
-            var player = Svc.Objects.FirstOrDefault(x => x is IPlayerCharacter pc && pc.Name.TextValue == name) as IPlayerCharacter;
-            if (player == null)
-            {
-                Notify.Error("选中失败，请换个位置重试。");
-                return;
-            }
-            SetConductor(player);
+            SetConductorByName(StripWorldSuffix(mt.TargetName));
         }
+    }
+
+    /// <summary>去掉名字里可能带的“@世界服”后缀。</summary>
+    internal static string StripWorldSuffix(string rawName)
+    {
+        var name = rawName.Trim();
+        var at = name.LastIndexOf('@');
+        return at > 0 ? name[..at].Trim() : name;
     }
 
     private void ClearConductorClicked(IMenuItemClickedArgs args)
     {
         Conductor.Clear();
+    }
+
+    /// <summary>
+    /// 按名字设置车头：玩家在附近时记录世界服并选中/焦点；不在附近（跨图、太远、对象表无此人）
+    /// 时同样生效——只按名字识别聊天消息，等玩家出现后 EnsureFocus 会自动补上焦点。
+    /// </summary>
+    public static void SetConductorByName(string rawName)
+    {
+        var name = StripWorldSuffix(rawName);
+        if (name.IsNullOrEmpty()) return;
+
+        var player = Svc.Objects.FirstOrDefault(x => x is IPlayerCharacter pc && pc.Name.TextValue == name) as IPlayerCharacter;
+        if (player != null)
+        {
+            SetConductor(player);
+            return;
+        }
+
+        // 找不到玩家对象：不影响设置。世界服记 0（不校验世界服，按名字匹配消息）。
+        P.Config.ConductorName = name;
+        P.Config.ConductorWorldId = 0;
+        EzConfig.Save();
+        HuntController.Reset();
+        Notify.Info($"你已选中{name}为车头~（玩家当前不在附近，未选中/焦点；不影响坐标识别，靠近后会自动焦点）");
     }
 
     /// <summary>

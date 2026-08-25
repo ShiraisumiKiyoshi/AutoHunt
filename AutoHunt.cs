@@ -200,14 +200,14 @@ public unsafe class AutoHunt : IDalamudPlugin
         else if (lower.StartsWith("set "))
         {
             var name = args[4..].Trim();
-            var player = Svc.Objects.FirstOrDefault(x => x is IPlayerCharacter pc && pc.Name.TextValue == name) as IPlayerCharacter;
-            if (player == null)
+            if (name.IsNullOrEmpty())
             {
-                Notify.Error("选中失败，请换个位置重试。");
+                Notify.Error("用法: /ah set <玩家名>");
             }
             else
             {
-                ContextMenuManager.SetConductor(player);
+                // 无需玩家在附近：找不到对象时同样按名字生效
+                ContextMenuManager.SetConductorByName(name);
             }
         }
         else if (lower == "reset")
