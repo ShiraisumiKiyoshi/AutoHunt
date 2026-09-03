@@ -1,8 +1,10 @@
 namespace AutoHunt;
 
 /// <summary>
-/// 依赖插件检测：检查 vnavmesh（必需）/ RotationSolver / Lifestream / Teleporter（可选）是否已安装，
+/// 依赖插件检测：检查 vnavmesh（必需）/ RotationSolver / Lifestream（可选）是否已安装，
 /// 缺失时聊天提示，并在设置界面状态页展示。
+/// 注：Teleporter 不检测——传送链为 Teleporter → Lifestream → 原生 Telepo，
+/// 任意一级缺失都有完整兜底，无需提示用户安装。
 /// </summary>
 internal static class DependencyChecker
 {
@@ -13,7 +15,6 @@ internal static class DependencyChecker
         new("vnavmesh", "vnavmesh", "寻路", true),
         new("RotationSolver", "RotationSolver", "自动输出", false),
         new("Lifestream", "Lifestream", "副本区切换", false),
-        new("Teleporter", "Teleporter", "传送", false),
     };
 
     /// <summary>插件是否已安装并加载（被禁用的插件不会加载，同样视为缺失）。检测失败时返回 true（不误报）。</summary>
