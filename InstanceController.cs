@@ -18,6 +18,13 @@ internal static unsafe class InstanceController
     private static readonly HashSet<ulong> engagedMobIds = new();
     /// <summary>已计入击杀数量的死亡怪物（防重复计数）</summary>
     private static readonly HashSet<ulong> countedMobIds = new();
+    /// <summary>已评估为非狩猎怪、明确不计数过的死亡怪物（防重复评估）。
+    /// 与 countedMobIds 分离：曾经评估为"不计数"不得阻塞后续 forceCount 补计
+    /// （修复：数据库未收录的怪被 ScanKills 预标记后，HuntController 的主动补计被挡住）</summary>
+    private static readonly HashSet<ulong> skippedMobIds = new();
+    /// <summary>插件主动选中过的怪（HuntController.TrackTarget 标记）。
+    /// 这些怪死亡时即使狩猎怪数据库未收录也照常计数。</summary>
+    private static readonly HashSet<ulong> markedMobIds = new();
 
     private static int killCount = 0;
     private static uint lastInstanceId = 0;
@@ -40,6 +47,8 @@ internal static unsafe class InstanceController
         killCount = 0;
         engagedMobIds.Clear();
         countedMobIds.Clear();
+        skippedMobIds.Clear();
+        markedMobIds.Clear();
         cachedInstanceCount = 0;
         cachedCurrentInstance = 0;
         if (!P.Config.Enabled || !P.Config.AutoInstance || territory == 0) return;
@@ -54,6 +63,17 @@ internal static unsafe class InstanceController
 
     /// <summary>外部请求保证 1 号副本区（跨图传送到达后）。</summary>
     public static void RequestEnsureInstanceOne() => pendingEnsureInstanceOne = true;
+
+    /// <summary>
+    /// 标记一只怪为"插件主动选中过"：该怪死亡时即使狩猎怪数据库未收录
+    /// （B 级被排除/新狩猎怪未收录）也照常计入击杀数。
+    /// 由 HuntController.TrackTarget 调用——怪之后即使目标丢失、流程提前结束，
+    /// 死亡时仍能被 ScanKills 识别并计数。
+    /// </summary>
+    public static void MarkEngaged(ulong mobId)
+    {
+        if (mobId != 0) markedMobIds.Add(mobId);
+    }
 
     /// <summary>取出待切换的副本区号（并清空等待状态）。</summary>
     public static int ConsumePendingSwitch()
@@ -78,7 +98,9 @@ internal static unsafe class InstanceController
                 lastInstanceId = instId;
                 killCount = 0;
                 countedMobIds.Clear();
+                skippedMobIds.Clear();
                 engagedMobIds.Clear();
+                markedMobIds.Clear();
             }
         }
 
@@ -156,12 +178,15 @@ internal static unsafe class InstanceController
             }
             else
             {
-                // 死亡：若之前参与过且未计数 → 尝试计数
-                if (engagedMobIds.Contains(npc.GameObjectId) && !countedMobIds.Contains(npc.GameObjectId))
+                // 死亡：若之前参与过且未评估 → 尝试计数。
+                // 注意：不再预先 countedMobIds.Add——集合管理统一交给 OnMobKilled，
+                // 避免"评估为不计数"的怪被误标记成"已计数"而挡住 forceCount 补计。
+                if (engagedMobIds.Contains(npc.GameObjectId)
+                    && !countedMobIds.Contains(npc.GameObjectId)
+                    && !skippedMobIds.Contains(npc.GameObjectId))
                 {
-                    countedMobIds.Add(npc.GameObjectId);
-                    // 只有狩猎怪才计入副本区击杀计数
-                    OnMobKilled(npc.GameObjectId, npc.NameId);
+                    // 插件主动选中过的怪（marked）即使数据库未收录也计数
+                    OnMobKilled(npc.GameObjectId, npc.NameId, markedMobIds.Contains(npc.GameObjectId));
                 }
             }
         }
@@ -170,13 +195,18 @@ internal static unsafe class InstanceController
         if (countedMobIds.Count > 200)
         {
             countedMobIds.RemoveWhere(id => Svc.Objects.FirstOrDefault(o => o.GameObjectId == id) == null);
+            skippedMobIds.RemoveWhere(id => Svc.Objects.FirstOrDefault(o => o.GameObjectId == id) == null);
             engagedMobIds.RemoveWhere(id => !Svc.Objects.Any(o => o.GameObjectId == id));
+            markedMobIds.RemoveWhere(id => !Svc.Objects.Any(o => o.GameObjectId == id));
         }
     }
 
     /// <summary>
     /// 一只玩家参与的怪物被击杀后调用。
-    /// 通过 mobId 去重（防止 HuntController 和 ScanKills 双重计数），
+    /// 去重集合分为两个：
+    ///  - countedMobIds：已真正计数（任何后续调用直接跳过）；
+    ///  - skippedMobIds：已评估为"非狩猎怪、不计数"（仅拦普通调用，
+    ///    不阻塞 forceCount 补计——插件主动选中的怪以 forceCount 为准）。
     /// 通过 nameId 判定是否为狩猎怪（非狩猎怪不计入副本区切换计数）。
     /// forceCount=true 时跳过狩猎怪判定（插件主动选中的目标即使数据库未收录也计数）。
     /// </summary>
@@ -186,7 +216,8 @@ internal static unsafe class InstanceController
         if (mobId != 0)
         {
             if (countedMobIds.Contains(mobId)) return;
-            countedMobIds.Add(mobId);
+            // 曾经被 ScanKills 评估为"不计数"的怪，若插件主动选中过（forceCount）则照常补计
+            if (!forceCount && skippedMobIds.Contains(mobId)) return;
         }
 
         // 只有狩猎怪才计入副本区切换计数
@@ -197,12 +228,14 @@ internal static unsafe class InstanceController
 
         if (!countAsHunt)
         {
+            if (mobId != 0) skippedMobIds.Add(mobId);
             if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 非狩猎怪击杀，不计入副本区计数 (NameId={nameId})");
             return;
         }
 
+        if (mobId != 0) countedMobIds.Add(mobId);
         killCount++;
-        if (P.Config.Debug) PluginLog.Debug($"副本区击杀计数: {killCount}/{P.Config.KillsPerInstance}");
+        if (P.Config.Debug) PluginLog.Debug($"副本区击杀计数: {killCount}/{P.Config.KillsPerInstance} (NameId={nameId}, forceCount={forceCount})");
 
         if (!P.Config.AutoInstance) return;
         if (killCount < P.Config.KillsPerInstance) return;
@@ -228,5 +261,7 @@ internal static unsafe class InstanceController
         pendingSwitchInstance = 0;
         engagedMobIds.Clear();
         countedMobIds.Clear();
+        skippedMobIds.Clear();
+        markedMobIds.Clear();
     }
 }

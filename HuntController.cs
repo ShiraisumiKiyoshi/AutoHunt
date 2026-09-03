@@ -57,10 +57,27 @@ internal static unsafe class HuntController
     private static DateTime targetLostSince = DateTime.MinValue;
     private static DateTime lastRetargetNotify = DateTime.MinValue;
 
+    // 输出阶段脱战计时（脱战 + 无怪 → 视为已击杀；战斗中说明仇恨还在，怪大概率活着）
+    private static DateTime outOfCombatSince = DateTime.MinValue;
+
     /// <summary>收到新车头坐标时触发状态机。</summary>
     public static void OnNewCoordinate(TargetPosition target)
     {
         if (target == null) return;
+
+        // 重复坐标过滤：车头为迟到玩家补发坐标时，若当前正处于
+        // 攻击/下降/下坐骑/输出阶段，且新坐标与当前目标相近（同图 < 50m），
+        // 视为同一只怪的重复坐标，忽略之——避免 StopOutput 打断正在进行的战斗，
+        // 以及重启流程后因怪被挤出对象表找不到而超时停止。
+        if ((CurrentState == State.Attacking || CurrentState == State.Descending
+                || CurrentState == State.Dismounting || CurrentState == State.Outputting)
+            && pendingTarget != null
+            && target.TerritoryId == pendingTarget.TerritoryId
+            && Vector2.Distance(target.WorldXZ, pendingTarget.WorldXZ) < 50f)
+        {
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 忽略重复坐标（与当前目标距离 < 50m，不打断当前战斗）: ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})");
+            return;
+        }
 
         // 如果正在输出中，先停止（车头发新坐标 = 当前怪已处理完或要换目标）
         if (CurrentState == State.Outputting || CurrentState == State.Attacking || CurrentState == State.Dismounting || CurrentState == State.Descending)
@@ -77,6 +94,7 @@ internal static unsafe class HuntController
         lastTargetId = 0;
         lastTargetPos = Vector3.Zero;
         targetLostSince = DateTime.MinValue;
+        outOfCombatSince = DateTime.MinValue;
 
         // 判断是否需要传送
         if (target.TerritoryId != Svc.ClientState.TerritoryType)
@@ -515,7 +533,7 @@ internal static unsafe class HuntController
     /// <summary>攻击中：监测血量，低于阈值则下坐骑输出。目标丢失时自动重新选中。</summary>
     private static void UpdateAttacking()
     {
-        var target = Svc.Targets.Target as IBattleNpc;
+        var target = GetValidTarget();
 
         // 目标死亡 → 结束
         if (target != null && target.IsDead)
@@ -536,7 +554,9 @@ internal static unsafe class HuntController
                 if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 攻击阶段目标丢失，尝试重新选中…");
             }
             TryRetarget();
-            if ((DateTime.Now - targetLostSince).TotalSeconds > 30)
+            // 战斗中（仇恨还在）说明怪大概率存活，只是被挤出对象表选不中 → 不放弃
+            bool inCombat = Svc.Condition[ConditionFlag.InCombat];
+            if (!inCombat && (DateTime.Now - targetLostSince).TotalSeconds > 30)
             {
                 Notify.Error("目标丢失超过30秒，放弃当前目标。");
                 CurrentState = State.Finished;
@@ -601,7 +621,7 @@ internal static unsafe class HuntController
     /// </summary>
     private static void UpdateDescending()
     {
-        var target = Svc.Targets.Target as IBattleNpc;
+        var target = GetValidTarget();
 
         // 目标死亡 → 无需下降，直接结束
         if (target != null && target.IsDead)
@@ -737,7 +757,7 @@ internal static unsafe class HuntController
     /// <summary>输出中：监测目标死亡。目标丢失时保持输出并自动重新选中。</summary>
     private static void UpdateOutputting()
     {
-        var target = Svc.Targets.Target as IBattleNpc;
+        var target = GetValidTarget();
 
         // 目标死亡 → 停止输出
         if (target != null && target.IsDead)
@@ -759,10 +779,35 @@ internal static unsafe class HuntController
                 if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 输出阶段目标丢失，尝试重新选中…");
             }
             TryRetarget();
-            // 长时间无目标且周围已无存活狩猎怪 → 视为已击杀，结束输出
-            if ((DateTime.Now - targetLostSince).TotalSeconds > 60 && FindNearestHuntMob() == null)
+
+            // 战斗中（我们打过它、仇恨还在）→ 怪大概率还活着，只是被挤出对象表
+            // 选不中而已。绝不停止输出，持续等待重新选中。
+            bool inCombat = Svc.Condition[ConditionFlag.InCombat];
+            if (inCombat)
             {
+                outOfCombatSince = DateTime.MinValue;
+                return;
+            }
+
+            // 脱战（怪的仇恨表已清空 = 已死亡）+ 周围无存活狩猎怪 → 视为已击杀。
+            // 补调 OnMobKilled 计数（按记录的目标 ID），修复"视为已击杀"却不计数的问题。
+            if (outOfCombatSince == DateTime.MinValue) outOfCombatSince = DateTime.Now;
+            bool noHuntNearby = FindNearestHuntMob() == null;
+            bool lostLongEnough = (DateTime.Now - targetLostSince).TotalSeconds > 60;
+            bool outOfCombatLongEnough = (DateTime.Now - outOfCombatSince).TotalSeconds > 10;
+            if (noHuntNearby && outOfCombatLongEnough)
+            {
+                Notify.Info("目标已丢失且脱离战斗，视为已击杀，停止输出。");
+                OnMobKilled();
+                StopOutput();
+                CurrentState = State.Finished;
+                stateStartTime = DateTime.Now;
+            }
+            else if (lostLongEnough && noHuntNearby)
+            {
+                // 兜底：长时间丢失且无怪（脱战判定异常时的保险路径）
                 Notify.Info("目标长时间丢失且周围无存活狩猎怪，视为已击杀，停止输出。");
+                OnMobKilled();
                 StopOutput();
                 CurrentState = State.Finished;
                 stateStartTime = DateTime.Now;
@@ -771,6 +816,7 @@ internal static unsafe class HuntController
         }
 
         targetLostSince = DateTime.MinValue;
+        outOfCombatSince = DateTime.MinValue;
         TrackTarget(target);
         CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
     }
@@ -803,6 +849,24 @@ internal static unsafe class HuntController
     {
         lastTargetId = target.GameObjectId;
         lastTargetPos = target.Position;
+        // 主动标记参与：插件选过的怪即使之后目标丢失/流程提前结束，
+        // 死亡时也能被 InstanceController 计数（修复本区击杀数不增加）
+        InstanceController.MarkEngaged(target.GameObjectId);
+    }
+
+    /// <summary>
+    /// 获取经过校验的当前目标：
+    /// 目标 ID 与追踪 ID（lastTargetId）不一致时返回 null（视为目标丢失）。
+    /// 狩猎车人多时怪物会被挤出对象表，Svc.Targets.Target 的引用可能失效——
+    /// 底层内存槽位被其他对象复用后，IsDead/CurrentHp 读到的是复用对象的数据，
+    /// 会把活怪误判成"已死亡"从而提前停止输出。ID 校验可彻底规避。
+    /// </summary>
+    private static IBattleNpc GetValidTarget()
+    {
+        var t = Svc.Targets.Target as IBattleNpc;
+        if (t == null) return null;
+        if (lastTargetId != 0 && t.GameObjectId != lastTargetId) return null;
+        return t;
     }
 
     /// <summary>
@@ -846,6 +910,7 @@ internal static unsafe class HuntController
         lastTargetId = 0;
         lastTargetPos = Vector3.Zero;
         targetLostSince = DateTime.MinValue;
+        outOfCombatSince = DateTime.MinValue;
         CurrentTargetName = "";
         CurrentTargetRank = "";
         CurrentTargetHpPercent = 100f;
