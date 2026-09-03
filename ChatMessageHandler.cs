@@ -162,33 +162,40 @@ internal static class ChatMessageHandler
         }
         var aetheryteName = nearest.Value.PlaceName.ValueNullable?.Name.ToString() ?? "水晶";
 
+        var tp = TargetPosition.CreateOrNull(targetTerritory, targetWorld, nearest, aetheryteName);
+        if (tp == null) return;
+
         // 判断击杀数是否已满，需要切换副本区
         var pendingSwitch = InstanceController.PendingSwitchInstance;
+
+        // 副本区切换流程进行中（切区传送中 / 切区任务执行中）：
+        // 车头会为迟到玩家重复发送坐标，此时绝不能走普通路径——
+        // 否则 OnNewCoordinate 会用 SwitchInstance=0 覆盖 TeleportTo，切区被吞掉，
+        // 表现为"传送到达后没切副本区，直接寻路去坐标"。
+        // 把最新坐标暂存，切区完成后由主循环自动继续前往。
+        if (pendingSwitch == 0 && (P.SwitchInProgress || (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0)))
+        {
+            P.HeldCoordinate = tp;
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 副本区切换流程进行中，暂存车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0})");
+            return;
+        }
+
         if (pendingSwitch != 0)
         {
             InstanceController.ConsumePendingSwitch();
             // 传送到目标坐标最近的水晶，到达后切换副本区
-            var target = TargetPosition.CreateOrNull(targetTerritory, targetWorld, nearest, aetheryteName);
-            if (target != null)
+            // 标记到达后需要切换副本区
+            P.TeleportTo = new ArrivalData
             {
-                // 标记到达后需要切换副本区
-                P.TeleportTo = new ArrivalData
-                {
-                    Aetheryte = nearest,
-                    Territory = targetTerritory,
-                    SwitchInstance = pendingSwitch,
-                };
-                HuntController.Reset();
-                Notify.Info($"准备切换 {pendingSwitch} 号副本区，传送到 {aetheryteName}…");
-            }
+                Aetheryte = nearest,
+                Territory = targetTerritory,
+                SwitchInstance = pendingSwitch,
+            };
+            HuntController.Reset();
+            Notify.Info($"准备切换 {pendingSwitch} 号副本区，传送到 {aetheryteName}…");
             return;
         }
 
-        // 创建目标位置，触发狩猎流程
-        var tp = TargetPosition.CreateOrNull(targetTerritory, targetWorld, nearest, aetheryteName);
-        if (tp != null)
-        {
-            HuntController.OnNewCoordinate(tp);
-        }
+        HuntController.OnNewCoordinate(tp);
     }
 }

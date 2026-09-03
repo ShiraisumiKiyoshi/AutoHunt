@@ -21,6 +21,12 @@ public unsafe class AutoHunt : IDalamudPlugin
     internal Vector3 LastPosition = Vector3.Zero;
     internal bool IsMoving = false;
 
+    // 副本区切换流程：切区任务执行中，暂存此期间收到的车头坐标，
+    // 切区完成后自动继续前往（防止重复坐标吞掉切区）
+    internal bool SwitchInProgress = false;
+    internal DateTime SwitchStartTime = DateTime.MinValue;
+    internal TargetPosition? HeldCoordinate = null;
+
     public AutoHunt(IDalamudPluginInterface pi)
     {
         P = this;
@@ -72,6 +78,19 @@ public unsafe class AutoHunt : IDalamudPlugin
             {
                 depRecheckTime = DateTime.MinValue;
                 DependencyChecker.CheckAndNotify();
+            }
+
+            // 副本区切换完成检测：任务链结束（≥2 秒避免启动帧误判）→ 继续暂存的车头坐标
+            if (SwitchInProgress && (DateTime.Now - SwitchStartTime).TotalSeconds > 2 && !TaskManager.IsBusy)
+            {
+                SwitchInProgress = false;
+                var held = HeldCoordinate;
+                HeldCoordinate = null;
+                if (held != null)
+                {
+                    Notify.Info("副本区切换完成，继续前往车头坐标…");
+                    HuntController.OnNewCoordinate(held);
+                }
             }
 
             if (!Player.Available) return;
@@ -170,11 +189,21 @@ public unsafe class AutoHunt : IDalamudPlugin
         // 传送会清掉焦点，到达后立刻恢复车头焦点
         Conductor.EnsureFocus();
 
-        if (data.SwitchInstance > 0 && S.LifestreamIPC.GetInstanceCount() > 1)
+        if (data.SwitchInstance > 0)
         {
-            Notify.Info($"到达目的地，切换到 {data.SwitchInstance} 号副本区…");
-            TaskEnsureInstance.Enqueue(data.SwitchInstance);
-            // 切区完成后，HuntController 继续等待车头发送新坐标
+            if (S.LifestreamIPC.GetInstanceCount() > 1)
+            {
+                Notify.Info($"到达目的地，切换到 {data.SwitchInstance} 号副本区…");
+                SwitchInProgress = true;
+                SwitchStartTime = DateTime.Now;
+                HeldCoordinate = null;
+                TaskEnsureInstance.Enqueue(data.SwitchInstance);
+            }
+            else
+            {
+                Notify.Error($"地图副本区数据不可用（数量 ≤ 1），跳过切区，直接前往坐标。");
+            }
+            // 切区完成后，HuntController 继续等待/前往车头坐标
             return;
         }
 
@@ -191,6 +220,8 @@ public unsafe class AutoHunt : IDalamudPlugin
             TaskManager.Abort();
             HuntController.Reset();
             TeleportTo = null;
+            SwitchInProgress = false;
+            HeldCoordinate = null;
             Notify.Info("已停止所有自动行为。");
         }
         else if (lower == "clear")
@@ -213,6 +244,8 @@ public unsafe class AutoHunt : IDalamudPlugin
         else if (lower == "reset")
         {
             InstanceController.Reset();
+            SwitchInProgress = false;
+            HeldCoordinate = null;
             Notify.Info("已重置副本区记录。");
         }
         else
