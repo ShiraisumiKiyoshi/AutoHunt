@@ -27,7 +27,13 @@ internal static class Conductor
         Notify.Info("已取消车头设置。");
     }
 
-    /// <summary>每帧检查焦点目标，丢失或被改时自动恢复车头焦点。</summary>
+    /// <summary>
+    /// 每 500ms 检查焦点目标，丢失或被改时自动恢复车头焦点。
+    /// 注意：只恢复焦点目标（FocusTarget），绝不改动当前选中目标（Target）——
+    /// 车头玩家不是 IBattleNpc，一旦覆盖 Target 会把狩猎流程选中的怪顶掉，
+    /// 造成"明明已选中目标却一直寻找中/目标丢失直至超时"。
+    /// 狩猎车人多时车头玩家频繁进出对象表，焦点会反复掉线，此劫持会持续发生。
+    /// </summary>
     public static void EnsureFocus()
     {
         if (!IsValid) return;
@@ -39,7 +45,7 @@ internal static class Conductor
 
         if (ft == null || ft.GameObjectId != expected.GameObjectId)
         {
-            Svc.Targets.Target = expected;
+            // 只恢复焦点，不动当前选中目标
             Svc.Targets.FocusTarget = expected;
         }
     }
