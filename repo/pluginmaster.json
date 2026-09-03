@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.0.8.0",
+    "AssemblyVersion": "2.0.9.0",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区。依赖：vnavmesh、RotationSolver、Lifestream、Teleporter。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.8.0.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.8.0.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.8.0.zip",
-    "LastUpdate": 1787658592,
-    "Changelog": "v2.0.8.0：设置车头不再要求玩家在附近可选中（右键聊天框玩家名或 /ah set 均无需选中即可生效，玩家不在附近时按名字识别坐标消息，靠近后自动补焦点）；修复仓库更新时 CDN 缓存导致的版本不匹配失败（下载链接改为带版本号的独立文件）。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.9.0.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.9.0.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.9.0.zip",
+    "LastUpdate": 1788438384,
+    "Changelog": "v2.0.9.0：修复到达后目标已选中却仍提示寻找中直至超时的问题——寻找阶段优先采用当前已选中的存活战斗目标（即使狩猎怪数据库未收录也照常采用），数据库扫描仅作补充；主动选中的目标击杀后照常计入副本区计数。"
   }
 ]

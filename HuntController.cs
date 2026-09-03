@@ -381,19 +381,25 @@ internal static unsafe class HuntController
     /// <summary>寻找并选中狩猎怪。必须是狩猎怪（A 怪 / S 怪 / 特殊狩猎怪）。</summary>
     private static void FindAndTargetHuntMob()
     {
-        // 先尝试找周围已知的狩猎怪
+        // 0. 优先检查当前目标：目标已经是存活的战斗怪时（无论是本插件上一轮、
+        //    RotationSolver 还是其他来源选中的）直接采用，不再依赖数据库扫描。
+        //    修复：目标明明已选中，却因 NotoriousMonster 表未命中（B 级被排除、
+        //    新狩猎怪未收录等）而一直"寻找中"直至超时的问题。
+        var current = Svc.Targets.Target as IBattleNpc;
+        if (current != null && !current.IsDead)
+        {
+            bool knownHunt = HuntMobDatabase.IsHuntMob(current.NameId, P.Config.IncludeBRank);
+            if (!knownHunt && P.Config.Debug)
+                PluginLog.Debug($"[AutoHunt] 当前目标未命中狩猎怪数据库，仍直接采用: {current.Name.TextValue} (NameId={current.NameId})");
+            AdoptTarget(current, knownHunt ? "" : "（当前目标）");
+            return;
+        }
+
+        // 1. 扫描对象表寻找周围已知的狩猎怪
         var huntMob = FindNearestHuntMob();
         if (huntMob != null)
         {
-            Svc.Targets.Target = huntMob;
-            CurrentTargetName = huntMob.Name.TextValue;
-            CurrentTargetRank = HuntMobDatabase.GetRankLabel(huntMob.NameId);
-            CurrentTargetHpPercent = huntMob.CurrentHp / (float)huntMob.MaxHp * 100f;
-            TrackTarget(huntMob);
-            targetLostSince = DateTime.MinValue;
-            CurrentState = State.Attacking;
-            stateStartTime = DateTime.Now;
-            Notify.Info($"已选中狩猎怪: [{CurrentTargetRank}] {CurrentTargetName} (HP {CurrentTargetHpPercent:0}%)");
+            AdoptTarget(huntMob);
             return;
         }
 
@@ -415,30 +421,53 @@ internal static unsafe class HuntController
             }
         }
 
-        // 持续搜索（每秒一次）
+        // 持续搜索（每秒一次）：先看当前目标是否已被选中，再扫描对象表
         if (EzThrottler.Throttle("WYHuntScan", 1000))
         {
+            current = Svc.Targets.Target as IBattleNpc;
+            if (current != null && !current.IsDead)
+            {
+                AdoptTarget(current, HuntMobDatabase.IsHuntMob(current.NameId, P.Config.IncludeBRank) ? "" : "（当前目标）");
+                return;
+            }
+
             huntMob = FindNearestHuntMob();
             if (huntMob != null)
             {
-                Svc.Targets.Target = huntMob;
-                CurrentTargetName = huntMob.Name.TextValue;
-                CurrentTargetRank = HuntMobDatabase.GetRankLabel(huntMob.NameId);
-                CurrentTargetHpPercent = huntMob.CurrentHp / (float)huntMob.MaxHp * 100f;
-                TrackTarget(huntMob);
-                targetLostSince = DateTime.MinValue;
-                CurrentState = State.Attacking;
-                stateStartTime = DateTime.Now;
-                Notify.Info($"已选中狩猎怪: [{CurrentTargetRank}] {CurrentTargetName} (HP {CurrentTargetHpPercent:0}%)");
+                AdoptTarget(huntMob);
+                return;
             }
         }
 
-        // 超时放弃
+        // 超时放弃（Debug 模式输出附近战斗怪诊断，便于定位为何扫描不到）
         if ((DateTime.Now - stateStartTime).TotalSeconds > 30)
         {
+            if (P.Config.Debug)
+            {
+                foreach (var obj in Svc.Objects)
+                {
+                    if (obj is IBattleNpc npc && !npc.IsDead)
+                        PluginLog.Debug($"[AutoHunt] 超时诊断: 附近战斗怪 {npc.Name.TextValue} (NameId={npc.NameId}, IsHunt(含B)={HuntMobDatabase.IsHuntMob(npc.NameId, true)})");
+                }
+            }
             Notify.Error("30秒内未找到狩猎怪，放弃当前目标。");
             Reset();
         }
+    }
+
+    /// <summary>采用目标为当前狩猎目标并进入攻击阶段。note 为附加提示（如"（当前目标）"）。</summary>
+    private static void AdoptTarget(IBattleNpc huntMob, string note = "")
+    {
+        Svc.Targets.Target = huntMob;
+        CurrentTargetName = huntMob.Name.TextValue;
+        CurrentTargetRank = HuntMobDatabase.GetRankLabel(huntMob.NameId);
+        if (string.IsNullOrEmpty(CurrentTargetRank)) CurrentTargetRank = "?";
+        CurrentTargetHpPercent = huntMob.CurrentHp / (float)huntMob.MaxHp * 100f;
+        TrackTarget(huntMob);
+        targetLostSince = DateTime.MinValue;
+        CurrentState = State.Attacking;
+        stateStartTime = DateTime.Now;
+        Notify.Info($"已选中狩猎怪: [{CurrentTargetRank}] {CurrentTargetName}{note} (HP {CurrentTargetHpPercent:0}%)");
     }
 
     /// <summary>攻击中：监测血量，低于阈值则下坐骑输出。目标丢失时自动重新选中。</summary>
@@ -708,9 +737,11 @@ internal static unsafe class HuntController
     private static void OnMobKilled()
     {
         var target = Svc.Targets.Target as IBattleNpc;
-        var mobId = target?.GameObjectId ?? 0;
+        var mobId = target?.GameObjectId ?? lastTargetId;
         var nameId = target?.NameId ?? 0;
-        InstanceController.OnMobKilled(mobId, nameId);
+        // 插件主动选中的目标被击杀时，即使狩猎怪数据库未收录该怪也照常计数
+        bool forceCount = target != null && mobId != 0 && mobId == lastTargetId;
+        InstanceController.OnMobKilled(mobId, nameId, forceCount);
     }
 
     /// <summary>记录当前目标的 ID 与位置，供目标丢失后找回/继续下降用。</summary>

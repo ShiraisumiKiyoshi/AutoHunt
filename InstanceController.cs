@@ -178,8 +178,9 @@ internal static unsafe class InstanceController
     /// 一只玩家参与的怪物被击杀后调用。
     /// 通过 mobId 去重（防止 HuntController 和 ScanKills 双重计数），
     /// 通过 nameId 判定是否为狩猎怪（非狩猎怪不计入副本区切换计数）。
+    /// forceCount=true 时跳过狩猎怪判定（插件主动选中的目标即使数据库未收录也计数）。
     /// </summary>
-    public static void OnMobKilled(ulong mobId = 0, uint nameId = 0)
+    public static void OnMobKilled(ulong mobId = 0, uint nameId = 0, bool forceCount = false)
     {
         // 去重：同一只怪不重复计数
         if (mobId != 0)
@@ -192,7 +193,7 @@ internal static unsafe class InstanceController
         bool isHunt = nameId != 0 && HuntMobDatabase.IsHuntMob(nameId, P.Config.IncludeBRank);
         // nameId=0 时（HuntController 路径，目标已丢失无法获取 NameId）
         // 回退：假设是狩猎怪（HuntController 只会选中狩猎怪）
-        bool countAsHunt = isHunt || nameId == 0;
+        bool countAsHunt = forceCount || isHunt || nameId == 0;
 
         if (!countAsHunt)
         {
