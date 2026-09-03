@@ -325,12 +325,54 @@ internal static unsafe class HuntController
         }
     }
 
-    /// <summary>计算精确悬停目标点：XZ 为车头坐标，Y = 当前飞行高度 + ZOffset（不可飞地图不加偏移）。</summary>
+    /// <summary>
+    /// 计算精确悬停目标点：XZ 为车头坐标。
+    /// Y 优先 = 目标坐标附近估算的地面高度 + ZOffset（悬停高度相对目标地面生效，
+    /// 修复飞flag 长途飞行巡航高度过高导致悬停在目标上空太高、选不到目标的问题）。
+    /// 附近没有任何可参照对象时回退 = 当前飞行高度 + ZOffset；不可飞地图不加偏移。
+    /// </summary>
     private static Vector3 ComputePreciseDest(TargetPosition target)
     {
         float y = Player.Position.Y;
-        if (Player.CanFly && P.Config.ZOffset > 0f) y += P.Config.ZOffset;
+        if (Player.CanFly && P.Config.ZOffset > 0f)
+        {
+            if (TryEstimateGroundY(target.WorldXZ, out var groundY))
+            {
+                y = groundY + P.Config.ZOffset;
+                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停高度相对目标地面: 地面Y≈{groundY:0.0} → 悬停Y={y:0.0} (ZOffset={P.Config.ZOffset:0}m)");
+            }
+            else
+            {
+                y += P.Config.ZOffset;
+                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 目标附近无可参照对象，悬停高度回退为当前飞行高度+ZOffset: Y={y:0.0}");
+            }
+        }
         return new Vector3(target.WorldXZ.X, y, target.WorldXZ.Y);
+    }
+
+    /// <summary>
+    /// 估算目标坐标处的地面高度：取目标 XZ 附近 60m 内玩家/战斗对象中的最低 Y。
+    /// 狩猎车场合目标周围几乎总有落地玩家，最低值最接近真实地面；
+    /// 顺便规避少数悬空飞行玩家的干扰（他们的 Y 不是地面）。
+    /// </summary>
+    private static bool TryEstimateGroundY(Vector2 worldXZ, out float groundY)
+    {
+        groundY = 0f;
+        bool found = false;
+        float minY = float.MaxValue;
+
+        foreach (var obj in Svc.Objects)
+        {
+            if (obj is not (IPlayerCharacter or IBattleNpc)) continue;
+            if (obj.Position.Y >= minY) continue;
+            float dxz = Vector2.Distance(new Vector2(obj.Position.X, obj.Position.Z), worldXZ);
+            if (dxz > 60f) continue;
+            minY = obj.Position.Y;
+            found = true;
+        }
+
+        if (found) groundY = minY;
+        return found;
     }
 
     /// <summary>进入精确悬停阶段：停止 flyflag 路径，IPC 寻路到坐标+ZOffset 点。</summary>
@@ -508,6 +550,18 @@ internal static unsafe class HuntController
         TrackTarget(target);
         CurrentTargetName = target.Name.TextValue;
         CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
+
+        // 悬停高度校正：已选中目标后，若悬停高度超过 目标Y + ZOffset + 8m（估算偏差或回退锚点不准），
+        // 持续下调到目标正上方 ZOffset 高度，保证目标始终在可选中/可输出范围内
+        if (Player.Mounted && Player.CanFly
+            && Player.Position.Y - target.Position.Y > P.Config.ZOffset + 8f
+            && S.VnavmeshIPC.GetIsReady()
+            && EzThrottler.Throttle("WYHoverAdjust", 3000))
+        {
+            var hoverPoint = new Vector3(target.Position.X, target.Position.Y + P.Config.ZOffset, target.Position.Z);
+            S.VnavmeshIPC.TryPathfindAndMoveTo(hoverPoint, true);
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停过高(ΔY={Player.Position.Y - target.Position.Y:0.0}m)，下调至目标上方 {P.Config.ZOffset:0}m");
+        }
 
         // 血量低于阈值 → 下坐骑准备输出
         if (CurrentTargetHpPercent <= P.Config.DismountHpPercent)

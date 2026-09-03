@@ -63,7 +63,7 @@ public class MainWindow : ConfigWindow
 
         ImGui.SetNextItemWidth(200);
         if (ImGui.SliderFloat("悬停高度偏移 (米)", ref P.Config.ZOffset, 0f, 100f)) EzConfig.Save();
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("接近车头坐标后，悬停点相对当前飞行高度的上移量（防止贴地卡地形/引怪）；不可飞地图自动忽略");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("接近车头坐标后，悬停点相对目标坐标地面高度的上移量（防止贴地卡地形/引怪、悬停过高选不到目标）；不可飞地图自动忽略");
 
         ImGui.SetNextItemWidth(200);
         if (ImGui.SliderFloat("下坐骑血量 (%)", ref P.Config.DismountHpPercent, 10f, 100f)) EzConfig.Save();

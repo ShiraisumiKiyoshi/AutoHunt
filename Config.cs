@@ -41,7 +41,7 @@ public class Config : IEzConfig
     /// <summary>同地图传送距离阈值：自己与目标距离减去最近水晶到目标距离大于此值时传送（单位：米）</summary>
     public float TeleportDistanceThreshold = 100f;
 
-    /// <summary>接近目标坐标后，精确悬停点相对当前飞行高度的上移量（防止贴地卡地形/引怪，单位：米；不可飞地图自动忽略）</summary>
+    /// <summary>接近目标坐标后，悬停点相对目标坐标地面高度的上移量（防止贴地卡地形/引怪，单位：米；不可飞地图自动忽略；附近无参照对象时回退为相对当前飞行高度）</summary>
     public float ZOffset = 30f;
 
     /// <summary>怪物血量低于此百分比时自动下坐骑开始输出（0-100）</summary>
