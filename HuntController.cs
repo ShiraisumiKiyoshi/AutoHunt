@@ -50,6 +50,7 @@ internal static unsafe class HuntController
     // 下坐骑状态
     private static bool dismountPending = false;
     private static DateTime dismountStartTime = DateTime.MinValue;
+    private static bool dismountWarned = false; // 下坐骑受阻提示只发一次
 
     // 目标追踪（防止玩家过多导致目标丢失后流程中断）
     private static ulong lastTargetId = 0;
@@ -89,6 +90,7 @@ internal static unsafe class HuntController
         navStarted = false;
         notifiedNoHunt = false;
         dismountPending = false;
+        dismountWarned = false;
         preciseStarted = false;
         preciseDest = Vector3.Zero;
         lastTargetId = 0;
@@ -572,8 +574,11 @@ internal static unsafe class HuntController
         CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
 
         // 悬停高度校正：已选中目标后，若悬停高度超过 目标Y + ZOffset + 8m（估算偏差或回退锚点不准），
-        // 持续下调到目标正上方 ZOffset 高度，保证目标始终在可选中/可输出范围内
+        // 持续下调到目标正上方 ZOffset 高度，保证目标始终在可选中/可输出范围内。
+        // 注意：血量已达标时不校正——进入下坐骑阶段后不能再有自身移动指令
+        // （BossMod 等躲避插件会在骑乘状态移动角色，自身寻路会加剧干扰下坐骑）。
         if (Player.Mounted && Player.CanFly
+            && CurrentTargetHpPercent > P.Config.DismountHpPercent
             && Player.Position.Y - target.Position.Y > P.Config.ZOffset + 8f
             && S.VnavmeshIPC.GetIsReady()
             && EzThrottler.Throttle("WYHoverAdjust", 3000))
@@ -588,7 +593,9 @@ internal static unsafe class HuntController
         {
             if (Player.Mounted && P.Config.AutoAttack)
             {
-                // 飞行中悬停在 ZOffset 高度，需要先降到地面再下坐骑
+                // 立即停止自身寻路：下坐骑阶段不允许自身移动指令干扰
+                // （飞行中按坐骑键触发自动降落，任何移动输入都会打断降落）
+                S.VnavmeshIPC.StopPath();
                 float heightDiff = Math.Abs(Player.Position.Y - target.Position.Y);
                 if (Player.CanFly && heightDiff > 5f)
                 {
@@ -603,6 +610,7 @@ internal static unsafe class HuntController
                     CurrentState = State.Dismounting;
                     dismountPending = true;
                     dismountStartTime = DateTime.Now;
+                    dismountWarned = false;
                     Notify.Info($"目标血量 {CurrentTargetHpPercent:0}% ≤ {P.Config.DismountHpPercent:0}%，正在下坐骑…");
                 }
             }
@@ -660,6 +668,7 @@ internal static unsafe class HuntController
                 CurrentState = State.Dismounting;
                 dismountPending = true;
                 dismountStartTime = DateTime.Now;
+                dismountWarned = false;
                 navStarted = false;
                 return;
             }
@@ -681,14 +690,18 @@ internal static unsafe class HuntController
         bool running = S.VnavmeshIPC.GetPathIsRunning();
         bool finding = S.VnavmeshIPC.GetPathfindInProgress();
 
-        // 接近地面 → 进入下坐骑（要求真正贴地：Y 差 < 1.5m，或已脱离飞行状态）
+        // 已贴地 → 进入下坐骑。
+        // 只要脱离飞行状态（InFlight=false，飞行坐骑已真正落地）即可，
+        // 不再要求横向距离 <15m：BossMod 等躲避插件会在骑乘状态拖着角色横向移动，
+        // 旧判定（distXZ < 15m）在躲避期间永远无法满足，只能干等超时。
         bool grounded = !Svc.Condition[ConditionFlag.InFlight];
-        if (distXZ < 15f && (distY < 1.5f || (distY < 5f && grounded)))
+        if (grounded || (distXZ < 15f && distY < 1.5f))
         {
             S.VnavmeshIPC.StopPath();
             CurrentState = State.Dismounting;
             dismountPending = true;
             dismountStartTime = DateTime.Now;
+            dismountWarned = false;
             navStarted = false;
             if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 已下降到地面 (Y={Player.Position.Y:0.0})，开始下坐骑");
             return;
@@ -709,6 +722,7 @@ internal static unsafe class HuntController
             CurrentState = State.Dismounting;
             dismountPending = true;
             dismountStartTime = DateTime.Now;
+            dismountWarned = false;
             navStarted = false;
             Notify.Info("下降超时，强制下坐骑…");
         }
@@ -717,6 +731,10 @@ internal static unsafe class HuntController
     /// <summary>下坐骑流程。
     /// FFXIV 机制：飞行中按坐骑键只触发「自动降落」，落地后需再按一次才真正下坐骑。
     /// 因此持续按坐骑键：飞行中第一下触发降落，落地后下一击完成下坐骑。
+    /// BossMod 等躲避插件会在骑乘状态下移动角色躲避技能，反复打断自动降落/下坐骑——
+    /// 旧版 15 秒超时后带着坐骑直接开始输出（骑乘状态无法输出，等于整个循环废掉）。
+    /// 现改为：每 0.5 秒重试一次，持续清掉残留寻路，绝不带着坐骑进入输出阶段，
+    /// 一直重试到真正下坐骑、目标死亡，或 60 秒极端兜底放弃为止。
     /// </summary>
     private static void UpdateDismounting()
     {
@@ -729,9 +747,27 @@ internal static unsafe class HuntController
             return;
         }
 
-        // 每秒按一次坐骑键（避开动画锁）：
-        // 飞行中 → 触发自动降落；已落地 → 真正下坐骑
-        if (EzThrottler.Throttle("WYHuntDismount", 1000) && !Player.IsAnimationLocked)
+        // 目标死亡 → 无需继续下坐骑，直接结束（下坐骑途中怪被打死很常见）
+        var target = GetValidTarget();
+        if (target != null && target.IsDead)
+        {
+            S.VnavmeshIPC.StopPath();
+            OnMobKilled();
+            StopOutput();
+            CurrentState = State.Finished;
+            stateStartTime = DateTime.Now;
+            return;
+        }
+
+        // 持续清掉残留/被复活的寻路路径：下坐骑阶段不允许任何自身移动指令
+        // （飞行中任何移动输入都会打断自动降落）
+        if (EzThrottler.Throttle("WYHuntDismountStopNav", 1000))
+            S.VnavmeshIPC.StopPath();
+
+        // 每 0.5 秒按一次坐骑键（避开动画锁）：
+        // 飞行中 → 触发自动降落；已落地 → 真正下坐骑（地面移动中也可下坐骑）。
+        // 躲避插件打断降落后下一次按键会重新触发，读到技能间隙即可成功。
+        if (EzThrottler.Throttle("WYHuntDismount", 500) && !Player.IsAnimationLocked)
         {
             var am = FFXIVClientStructs.FFXIV.Client.Game.ActionManager.Instance();
             if (am != null && am->GetActionStatus(FFXIVClientStructs.FFXIV.Client.Game.ActionType.GeneralAction, 9) == 0)
@@ -740,17 +776,32 @@ internal static unsafe class HuntController
             }
             else
             {
-                Chat.ExecuteCommand("/dismount");
+                // 官方命令表无 /dismount；/mount 在骑乘中执行即为解散坐骑
+                Chat.ExecuteCommand("/mount");
             }
         }
 
-        // 超时兜底：飞行自动降落约需 3~10 秒，给足 15 秒
-        if ((DateTime.Now - dismountStartTime).TotalSeconds > 15)
+        double elapsed = (DateTime.Now - dismountStartTime).TotalSeconds;
+
+        // 15 秒提示一次（可能正被躲避插件持续控制移动），但绝不放弃
+        if (elapsed > 15 && !dismountWarned)
         {
-            Notify.Error("下坐骑超时（15秒），仍处于骑乘状态，直接开始输出。");
-            dismountPending = false;
-            CurrentState = State.Outputting;
-            StartOutput();
+            dismountWarned = true;
+            Notify.Info("下坐骑被持续打断（躲避插件正在控制角色移动），继续重试直到成功…");
+        }
+        if (P.Config.Debug && elapsed > 15 && EzThrottler.Throttle("WYHuntDismountDbg", 5000))
+        {
+            PluginLog.Debug($"[AutoHunt] 下坐骑重试中: InFlight={Svc.Condition[ConditionFlag.InFlight]}, Pos=({Player.Position.X:0.0}, {Player.Position.Y:0.0}, {Player.Position.Z:0.0})");
+        }
+
+        // 60 秒极端兜底：被持续控制移动等异常场合放弃该目标
+        if (elapsed > 60)
+        {
+            Notify.Error("下坐骑超时（60秒），放弃当前目标。");
+            S.VnavmeshIPC.StopPath();
+            StopOutput();
+            CurrentState = State.Finished;
+            stateStartTime = DateTime.Now;
         }
     }
 
@@ -905,6 +956,7 @@ internal static unsafe class HuntController
         navStarted = false;
         notifiedNoHunt = false;
         dismountPending = false;
+        dismountWarned = false;
         preciseStarted = false;
         preciseDest = Vector3.Zero;
         lastTargetId = 0;

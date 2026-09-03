@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.0.11.0",
+    "AssemblyVersion": "2.0.12.0",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区。依赖：vnavmesh、RotationSolver、Lifestream、Teleporter。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.11.0.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.11.0.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.11.0.zip",
-    "LastUpdate": 1788441973,
-    "Changelog": "v2.0.11.0：修复狩猎怪没死就提前停止输出循环、击杀后本区击杀数不增加——目标被挤出对象表后引用失效不再误判死亡（ID 校验）；输出阶段战斗中绝不放弃等待重选，脱战且无怪才视为已击杀并补计数；车头补发重复坐标（同图50m内）不再打断进行中的战斗；计数去重拆分 counted/skipped 集合，数据库未收录怪不再阻塞补计，插件主动选过的怪死亡必计数。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.12.0.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.12.0.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.12.0.zip",
+    "LastUpdate": 1788442730,
+    "Changelog": "v2.0.12.0：修复 BossMod 等躲避插件在骑乘状态移动角色导致无法下坐骑——血量达标后绝不带着坐骑开始输出：下坐骑改为每 0.5 秒持续重试直到成功（60 秒极端兜底），期间持续清除残留寻路；落地判定放宽为脱离飞行状态即可（不再要求横向距离<15m）；血量达标瞬间立即停止自身寻路与悬停校正，下坐骑不受自身移动指令干扰。"
   }
 ]
