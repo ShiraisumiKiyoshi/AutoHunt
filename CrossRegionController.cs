@@ -22,6 +22,8 @@ internal static class CrossRegionController
     private static string targetWorld = "";
     private static bool pfEnqueued = false;
     private static bool wasBetweenAreas = false;
+    private static DateTime citySince = DateTime.MinValue;
+    private static int preTpAttempts = 0;
 
     internal static bool Active => phase != Phase.Inactive;
 
@@ -54,6 +56,11 @@ internal static class CrossRegionController
     public static void Begin()
     {
         if (!P.Config.CrossRegionEnable) return;
+        if (Active)
+        {
+            Notify.Info("跨区：跨区流程已在进行中，忽略本次触发。");
+            return;
+        }
         if (!Player.Available)
         {
             Notify.Error("跨区：角色当前不可用，已取消跨区流程。");
@@ -88,6 +95,8 @@ internal static class CrossRegionController
         wasBetweenAreas = false;
         targetWorld = "";
         pfEnqueued = false;
+        citySince = DateTime.MinValue;
+        preTpAttempts = 0;
         Notify.Info($"跨区流程已启动：先传送至 {PreCityName}，之后按狩猎时间表跨区。");
     }
 
@@ -99,6 +108,8 @@ internal static class CrossRegionController
         waitUntil = DateTime.MinValue;
         pfEnqueued = false;
         wasBetweenAreas = false;
+        citySince = DateTime.MinValue;
+        preTpAttempts = 0;
     }
 
     public static void Update()
@@ -106,6 +117,21 @@ internal static class CrossRegionController
         if (phase == Phase.Inactive) return;
         if (!Player.Available) return;
         if (S.LifestreamIPC == null || S.TeleporterIPC == null) return;
+
+        // 运行中随时尊重开关：关闭「启用跨区功能」立即中止流程
+        if (!P.Config.CrossRegionEnable)
+        {
+            Reset();
+            Notify.Info("跨区：已关闭「启用跨区功能」，跨区流程中止。");
+            return;
+        }
+        // 时间表被清空时中止，避免空转
+        if (P.Config.CrossRegionSchedule.Count == 0)
+        {
+            Reset();
+            Notify.Info("跨区：狩猎时间表已清空，跨区流程中止。");
+            return;
+        }
 
         try
         {
@@ -132,9 +158,11 @@ internal static class CrossRegionController
     {
         var city = PreCity;
         var betweenAreas = Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51];
-        var arrived = Svc.ClientState.TerritoryType == city.Territory
-            && Player.Interactable
-            && !betweenAreas;
+        // 连续停留在城市地图的时长（Interactable 可能因 UI 占用短暂失败，停留 5 秒即视为已到达）
+        var inCity = Svc.ClientState.TerritoryType == city.Territory && !betweenAreas;
+        if (inCity && citySince == DateTime.MinValue) citySince = DateTime.Now;
+        if (!inCity) citySince = DateTime.MinValue;
+        var arrived = inCity && (Player.Interactable || (DateTime.Now - citySince).TotalSeconds >= 5);
 
         if (arrived)
         {
@@ -153,9 +181,9 @@ internal static class CrossRegionController
             return;
         }
 
-        if ((DateTime.Now - stepStart).TotalSeconds > 120)
+        if ((DateTime.Now - stepStart).TotalSeconds > 180)
         {
-            Notify.Error("跨区：传送前往跨区城市超时，已中止。");
+            Notify.Error($"跨区：传送前往跨区城市超时（当前地图 {Svc.ClientState.TerritoryType}，目标 {city.Territory}），已中止。");
             Reset();
             return;
         }
@@ -164,9 +192,15 @@ internal static class CrossRegionController
         if (Svc.Condition[ConditionFlag.InCombat] || Svc.Condition[ConditionFlag.Casting]) return;
         if (!Player.Interactable || Player.IsAnimationLocked) return;
 
-        // 节流尝试传送（复用全插件传送链：Teleporter → Lifestream → 原生 Telepo）
-        if (EzThrottler.Throttle("WYCrossPreTp", 2000))
+        // 节流尝试传送（8 秒一次、最多 5 次，避免重复传送刷屏/烧钱）
+        if (EzThrottler.Throttle("WYCrossPreTp", 8000))
         {
+            if (++preTpAttempts > 5)
+            {
+                Notify.Error($"跨区：多次传送未能到达 {city.Name}（当前地图 {Svc.ClientState.TerritoryType}），已中止。");
+                Reset();
+                return;
+            }
             if (!S.TeleporterIPC.TryTeleport(city.AetheryteId, 0)
                 && !S.LifestreamIPC.TryTeleport(city.AetheryteId))
             {
