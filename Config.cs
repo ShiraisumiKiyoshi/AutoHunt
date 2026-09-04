@@ -67,6 +67,33 @@ public class Config : IEzConfig
     /// <summary>队员招募自由留言（创建招募时自动填入，最长 2 行 / 191 字节）</summary>
     public string PfinderString = "";
 
+    // ===== 跨区（数据中心传送） =====
+
+    /// <summary>启用跨区功能（取消车头后按狩猎时间表自动跨区）</summary>
+    public bool CrossRegionEnable = false;
+
+    /// <summary>跨区前传送到的城市：0=格里达尼亚新街（默认）1=利姆萨·罗敏萨下层甲板 2=乌尔达哈现世回廊</summary>
+    public int CrossRegionPreCity = 0;
+
+    /// <summary>跨区后传送到的水晶 ID（Aetheryte RowId），0 表示不传送</summary>
+    public uint CrossRegionPostAetheryteId = 0;
+
+    /// <summary>跨区完成后自动开启队员招募（需同时启用「启用一键创建队员招募」）</summary>
+    public bool CrossRegionAutoPF = false;
+
+    /// <summary>狩猎时间表（时间 HHMM + 大区名）</summary>
+    public List<CrossRegionScheduleEntry> CrossRegionSchedule = new();
+
     /// <summary>调试模式</summary>
     public bool Debug = false;
+}
+
+/// <summary>狩猎时间表条目：本地时间 HHMM + 目标大区（数据中心名）。</summary>
+public class CrossRegionScheduleEntry
+{
+    /// <summary>时间，HHMM 格式（仅数字），如 0930</summary>
+    public string Time = "";
+
+    /// <summary>大区（数据中心）名称</summary>
+    public string DataCenter = "";
 }

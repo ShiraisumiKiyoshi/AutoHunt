@@ -28,6 +28,9 @@ public class LifestreamIPC
     [EzIPC]
     public Func<uint, bool> Teleport;
 
+    [EzIPC]
+    public Action<string> ExecuteCommand;
+
     public LifestreamIPC()
     {
         try
@@ -81,5 +84,17 @@ public class LifestreamIPC
     {
         try { ChangeInstance?.Invoke(number); }
         catch { }
+    }
+
+    /// <summary>执行 Lifestream 命令（如传入大区名触发跨区传送）。不可用返回 false。</summary>
+    public bool TryExecuteCommand(string arguments)
+    {
+        try
+        {
+            if (ExecuteCommand == null) return false;
+            ExecuteCommand(arguments);
+            return true;
+        }
+        catch { return false; }
     }
 }

@@ -25,6 +25,8 @@ internal static class Conductor
         EzConfig.Save();
         Svc.Targets.FocusTarget = null;
         Notify.Info("已取消车头设置。");
+        // 跨区功能启用时：取消车头后按狩猎时间表自动跨区
+        if (P.Config.CrossRegionEnable) CrossRegionController.Begin();
     }
 
     /// <summary>

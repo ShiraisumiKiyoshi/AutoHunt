@@ -1,4 +1,5 @@
 using ImGui = Dalamud.Bindings.ImGui.ImGui;
+using Dalamud.Bindings.ImGui;
 using ECommons.SimpleGui;
 
 namespace AutoHunt.PluginUI;
@@ -44,6 +45,11 @@ public class MainWindow : ConfigWindow
                 DrawRecruitTab();
                 ImGui.EndTabItem();
             }
+            if (ImGui.BeginTabItem("跨区"))
+            {
+                DrawCrossRegionTab();
+                ImGui.EndTabItem();
+            }
             if (ImGui.BeginTabItem("高级"))
             {
                 DrawAdvancedTab();
@@ -60,10 +66,10 @@ public class MainWindow : ConfigWindow
 
     private void DrawRecruitTab()
     {
-        if (ImGui.Checkbox("启用一键创建队员招募按钮", ref P.Config.PfinderEnable)) EzConfig.Save();
+        if (ImGui.Checkbox("启用一键创建队员招募", ref P.Config.PfinderEnable)) EzConfig.Save();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("启用后，设置窗口顶部的「创建怪物狩猎招募」按钮可用");
 
-        if (ImGui.Checkbox("启用创建招募时设置青魔站位", ref P.Config.BluPlaceholder)) EzConfig.Save();
+        if (ImGui.Checkbox("启用创建招募时设置青魔占位", ref P.Config.BluPlaceholder)) EzConfig.Save();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("启用后，在创建队员招募时会自动设置青魔占位（选择青魔职业占位），并限定平均品级 531");
 
         ImGui.Separator();
@@ -76,6 +82,154 @@ public class MainWindow : ConfigWindow
             EzConfig.Save();
         }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("创建招募时自动填入招募留言，最长 2 行（约 50 个汉字）");
+    }
+
+    private static List<(uint Id, string Name)> cachedAetherytes;
+    private static List<string> cachedDataCenters;
+
+    private static List<(uint Id, string Name)> GetAetherytesCached()
+    {
+        if (cachedAetherytes == null) cachedAetherytes = CrossRegionController.GetTeleportableAetherytes();
+        return cachedAetherytes;
+    }
+
+    private static List<string> GetDataCentersCached()
+    {
+        if (cachedDataCenters == null) cachedDataCenters = CrossRegionController.GetDataCenters();
+        return cachedDataCenters;
+    }
+
+    private void DrawCrossRegionTab()
+    {
+        if (ImGui.Checkbox("启用跨区功能", ref P.Config.CrossRegionEnable)) EzConfig.Save();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("启用后，取消车头时自动执行跨区流程：\n取消车头 → 传送到跨区前城市 → 到达狩猎时间表中本地时间的下一个时间点后跨区到对应大区 → 传送到跨区后水晶 →（可选）自动开启招募");
+
+        ImGui.TextUnformatted($"跨区流程状态: {CrossRegionController.CurrentState}");
+        ImGui.Separator();
+
+        // ===== 跨区前传送到城市 =====
+        ImGui.Text("跨区前传送到城市");
+        ImGui.SetNextItemWidth(250);
+        var cities = CrossRegionController.PreCities;
+        var preIdx = Math.Clamp(P.Config.CrossRegionPreCity, 0, cities.Length - 1);
+        if (ImGui.BeginCombo("##crosspre", cities[preIdx].Name))
+        {
+            for (var i = 0; i < cities.Length; i++)
+            {
+                if (ImGui.Selectable(cities[i].Name, i == preIdx))
+                {
+                    P.Config.CrossRegionPreCity = i;
+                    EzConfig.Save();
+                }
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("只有利姆萨·罗敏萨下层甲板、格里达尼亚新街、乌尔达哈现世回廊这三个地方可以进行跨区操作，默认格里达尼亚新街");
+
+        // ===== 跨区后传送到水晶 =====
+        ImGui.Text("跨区后传送到水晶");
+        ImGui.SetNextItemWidth(250);
+        var aetherytes = GetAetherytesCached();
+        var postId = P.Config.CrossRegionPostAetheryteId;
+        var postName = postId == 0
+            ? "不传送"
+            : aetherytes.FirstOrDefault(a => a.Id == postId).Name ?? $"未知水晶 ({postId})";
+        if (ImGui.BeginCombo("##crosspost", postName))
+        {
+            if (ImGui.Selectable("不传送", postId == 0))
+            {
+                P.Config.CrossRegionPostAetheryteId = 0;
+                EzConfig.Save();
+            }
+            foreach (var a in aetherytes)
+            {
+                if (ImGui.Selectable(a.Name, a.Id == postId))
+                {
+                    P.Config.CrossRegionPostAetheryteId = a.Id;
+                    EzConfig.Save();
+                }
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("跨区完成后的传送目的地；选择「不传送」则跨界后不进行传送操作");
+
+        ImGui.Separator();
+
+        // ===== 狩猎时间表 =====
+        ImGui.Text("狩猎时间表");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("取消车头后，将选择时间表中「本地时间的下一个」时间点对应的大区进行跨区；到点前会停留在跨区前城市等待");
+        if (ImGui.BeginTable("##crossschedule", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
+        {
+            ImGui.TableSetupColumn("时间", ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupColumn("大区", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("操作", ImGuiTableColumnFlags.WidthFixed, 70);
+            ImGui.TableHeadersRow();
+
+            var schedule = P.Config.CrossRegionSchedule;
+            for (var i = 0; i < schedule.Count; i++)
+            {
+                var e = schedule[i];
+                ImGui.PushID(i);
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                var time = e.Time ?? "";
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputText("##time", ref time, 4, ImGuiInputTextFlags.CharsDecimal))
+                {
+                    e.Time = time;
+                    EzConfig.Save();
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    var parsed = CrossRegionController.ParseHHMM(e.Time);
+                    ImGui.SetTooltip(parsed == null
+                        ? "本地时间，HHMM 格式（仅数字），如 0930 表示 09:30"
+                        : $"{parsed.Value / 60:00}:{parsed.Value % 60:00}");
+                }
+
+                ImGui.TableNextColumn();
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.BeginCombo("##dc", string.IsNullOrEmpty(e.DataCenter) ? "请选择大区" : e.DataCenter))
+                {
+                    foreach (var dc in GetDataCentersCached())
+                    {
+                        if (ImGui.Selectable(dc, dc == e.DataCenter))
+                        {
+                            e.DataCenter = dc;
+                            EzConfig.Save();
+                        }
+                    }
+                    ImGui.EndCombo();
+                }
+
+                ImGui.TableNextColumn();
+                if (ImGui.SmallButton("删除"))
+                {
+                    schedule.RemoveAt(i);
+                    EzConfig.Save();
+                    ImGui.PopID();
+                    continue;
+                }
+                ImGui.PopID();
+            }
+            ImGui.EndTable();
+        }
+        if (ImGui.Button("新增车次", new Vector2(150, 0)))
+        {
+            P.Config.CrossRegionSchedule.Add(new CrossRegionScheduleEntry());
+            EzConfig.Save();
+        }
+
+        ImGui.Separator();
+
+        // ===== 自动开启招募 =====
+        if (ImGui.Checkbox("自动开启招募", ref P.Config.CrossRegionAutoPF)) EzConfig.Save();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("跨区流程完成后，按照「招募」标签内配置的信息（留言、青魔占位）自动开启队员招募。\n注意：需同时开启「招募」标签中的「启用一键创建队员招募」，否则只会提示而不会自动开启招募。");
     }
 
     private void DrawBasicTab()

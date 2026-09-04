@@ -103,6 +103,7 @@ public unsafe class AutoHunt : IDalamudPlugin
 
             InstanceController.Update();
             Conductor.EnsureFocus();
+            CrossRegionController.Update();
             HuntController.Update();
             UpdateTeleport();
         }
@@ -166,7 +167,7 @@ public unsafe class AutoHunt : IDalamudPlugin
         }
     }
 
-    private static void NativeTeleport(uint aetheryteId)
+    internal static void NativeTeleport(uint aetheryteId)
     {
         var instance = FFXIVClientStructs.FFXIV.Client.Game.UI.Telepo.Instance();
         if (instance != null)
@@ -222,6 +223,7 @@ public unsafe class AutoHunt : IDalamudPlugin
             TeleportTo = null;
             SwitchInProgress = false;
             HeldCoordinate = null;
+            CrossRegionController.Reset();
             Notify.Info("已停止所有自动行为。");
         }
         else if (lower == "clear")
