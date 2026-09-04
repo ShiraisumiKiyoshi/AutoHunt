@@ -43,7 +43,7 @@ internal static class CrossRegionController
     /// <summary>跨区前城市定义：显示名 / Aetheryte RowId / TerritoryType。</summary>
     internal static readonly (string Name, uint AetheryteId, uint Territory)[] PreCities =
     {
-        ("格里达尼亚新街", 2, 133),
+        ("格里达尼亚新街", 2, 132),
         ("利姆萨·罗敏萨下层甲板", 8, 129),
         ("乌尔达哈现世回廊", 9, 130),
     };
