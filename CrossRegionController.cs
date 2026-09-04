@@ -7,18 +7,17 @@ namespace AutoHunt;
 
 /// <summary>
 /// 跨区（数据中心传送）控制器。
-/// 流程：取消车头 → 传送到「跨区前传送到城市」→ 等待本地时间到达狩猎时间表中的下一个时间点
-/// → 通过 Lifestream 跨区到对应服务器 → 传送到「跨区后传送到水晶」（可选）
+/// 流程：取消车头 → 传送到「跨区前传送到城市」→ 立即跨区到狩猎时间表中「本地时间下一个时间点」对应的服务器（无需等待到点）
+/// → 传送到「跨区后传送到水晶」（可选）
 /// → 按招募标签配置自动开启队员招募（可选，需同时启用「启用一键创建队员招募」）。
 /// 自带状态机，不占用 TaskManager（留给招募任务链等任务使用）。
 /// </summary>
 internal static class CrossRegionController
 {
-    private enum Phase { Inactive, ToPreCity, WaitSchedule, DcTravel, ToPostCrystal, CreatePF }
+    private enum Phase { Inactive, ToPreCity, DcTravel, ToPostCrystal, CreatePF }
 
     private static Phase phase = Phase.Inactive;
     private static DateTime stepStart = DateTime.MinValue;
-    private static DateTime waitUntil = DateTime.MinValue;
     private static string targetWorld = "";
     private static bool pfEnqueued = false;
     private static bool wasBetweenAreas = false;
@@ -32,7 +31,6 @@ internal static class CrossRegionController
     {
         Phase.Inactive => "未运行",
         Phase.ToPreCity => $"前往跨区城市（{PreCityName}）",
-        Phase.WaitSchedule => $"等待时间表时间点（{waitUntil:HH:mm} → {targetWorld}）",
         Phase.DcTravel => $"跨区传送中（→ {targetWorld}）",
         Phase.ToPostCrystal => "传送到跨区后水晶",
         Phase.CreatePF => "自动开启招募",
@@ -105,7 +103,6 @@ internal static class CrossRegionController
     {
         phase = Phase.Inactive;
         targetWorld = "";
-        waitUntil = DateTime.MinValue;
         pfEnqueued = false;
         wasBetweenAreas = false;
         citySince = DateTime.MinValue;
@@ -138,8 +135,7 @@ internal static class CrossRegionController
             switch (phase)
             {
                 case Phase.ToPreCity: UpdateToPreCity(); break;
-                case Phase.WaitSchedule: UpdateWaitSchedule(); break;
-                case Phase.DcTravel: UpdateDcTravel(); break;
+                    case Phase.DcTravel: UpdateDcTravel(); break;
                 case Phase.ToPostCrystal: UpdateToPostCrystal(); break;
                 case Phase.CreatePF: UpdateCreatePF(); break;
             }
@@ -166,7 +162,7 @@ internal static class CrossRegionController
 
         if (arrived)
         {
-            // 已在城市 → 进入等待时间表阶段
+            // 已在城市 → 立即跨区到本地时间下一个时间点对应的服务器（无需等待到点）
             var next = GetNextEntry();
             if (next == null)
             {
@@ -174,10 +170,17 @@ internal static class CrossRegionController
                 Reset();
                 return;
             }
-            waitUntil = ResolveNextTime(next.Value.time);
             targetWorld = next.Value.entry.World;
-            phase = Phase.WaitSchedule;
-            Notify.Info($"跨区：已到达 {city.Name}，将于 {waitUntil:HH:mm} 跨区至「{targetWorld}」，请勿关闭游戏。");
+            if (!S.LifestreamIPC.TryExecuteCommand(targetWorld))
+            {
+                Notify.Error($"跨区：Lifestream 命令不可用，无法跨区到「{targetWorld}」，已中止。");
+                Reset();
+                return;
+            }
+            stepStart = DateTime.Now;
+            wasBetweenAreas = false;
+            phase = Phase.DcTravel;
+            Notify.Info($"跨区：已到达 {city.Name}，直接开始跨区至「{targetWorld}」…");
             return;
         }
 
@@ -209,45 +212,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 2：等待狩猎时间表的下一个时间点 =====
-
-    private static void UpdateWaitSchedule()
-    {
-        // 时间表可能被用户中途编辑，每次重新解析并重算等待目标
-        if (EzThrottler.Throttle("WYCrossWaitRefresh", 5000))
-        {
-            var next = GetNextEntry();
-            if (next == null)
-            {
-                Notify.Error("跨区：狩猎时间表已无有效条目，已中止。");
-                Reset();
-                return;
-            }
-            var until = ResolveNextTime(next.Value.time);
-            if (targetWorld != next.Value.entry.World || until != waitUntil)
-            {
-                targetWorld = next.Value.entry.World;
-                waitUntil = until;
-                Notify.Info($"跨区：时间表已更新，将于 {waitUntil:HH:mm} 跨区至「{targetWorld}」");
-            }
-        }
-
-        if (DateTime.Now >= waitUntil)
-        {
-            if (!S.LifestreamIPC.TryExecuteCommand(targetWorld))
-            {
-                Notify.Error($"跨区：Lifestream 命令不可用，无法跨区到「{targetWorld}」，已中止。");
-                Reset();
-                return;
-            }
-            stepStart = DateTime.Now;
-            wasBetweenAreas = false;
-            phase = Phase.DcTravel;
-            Notify.Info($"跨区：到达预定时间，开始跨区至「{targetWorld}」…");
-        }
-    }
-
-    // ===== 阶段 3：等待跨区传送完成 =====
+    // ===== 阶段 2：等待跨区传送完成 =====
 
     private static void UpdateDcTravel()
     {
@@ -273,7 +238,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 4：传送到跨区后水晶 =====
+    // ===== 阶段 3：传送到跨区后水晶 =====
 
     private static void UpdateToPostCrystal()
     {
@@ -320,7 +285,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 5：自动开启招募 =====
+    // ===== 阶段 4：自动开启招募 =====
 
     private static void UpdateCreatePF()
     {

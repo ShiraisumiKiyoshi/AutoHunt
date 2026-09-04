@@ -161,7 +161,7 @@ public class MainWindow : ConfigWindow
         // ===== 狩猎时间表 =====
         ImGui.Text("狩猎时间表");
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("取消车头后，将选择时间表中「本地时间的下一个」时间点对应的服务器进行跨区（列表为当前角色所在大区内的全部服务器）；到点前会停留在跨区前城市等待");
+            ImGui.SetTooltip("取消车头后，到达跨区前城市后，立即跨区到时间表中「本地时间的下一个」时间点对应的服务器（无需等待到点）；服务器列表为当前角色所在大区内的全部服务器");
         if (ImGui.BeginTable("##crossschedule", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
         {
             ImGui.TableSetupColumn("时间", ImGuiTableColumnFlags.WidthFixed, 100);
