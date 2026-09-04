@@ -31,6 +31,9 @@ public class LifestreamIPC
     [EzIPC]
     public Action<string> ExecuteCommand;
 
+    [EzIPC]
+    public Func<string, bool> ChangeWorld;
+
     public LifestreamIPC()
     {
         try
@@ -84,6 +87,20 @@ public class LifestreamIPC
     {
         try { ChangeInstance?.Invoke(number); }
         catch { }
+    }
+
+    /// <summary>
+    /// 切换世界（Lifestream ChangeWorld IPC：自动判断同区/跨区）。
+    /// 返回 null = IPC 不可用；false = 世界名无效或 Lifestream 忙；true = 已开始传送。
+    /// </summary>
+    public bool? TryChangeWorld(string world)
+    {
+        try
+        {
+            if (ChangeWorld == null) return null;
+            return ChangeWorld(world);
+        }
+        catch { return null; }
     }
 
     /// <summary>执行 Lifestream 命令（如传入大区名触发跨区传送）。不可用返回 false。</summary>

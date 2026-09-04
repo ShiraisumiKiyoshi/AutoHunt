@@ -23,6 +23,8 @@ internal static class CrossRegionController
     private static bool wasBetweenAreas = false;
     private static DateTime citySince = DateTime.MinValue;
     private static int preTpAttempts = 0;
+    private static bool lifestreamStarted = false;   // DcTravel 触发时 Lifestream 是否已接受指令
+    private static bool lifestreamWasBusy = false;   // DcTravel 期间是否观察到 Lifestream 忙
 
     internal static bool Active => phase != Phase.Inactive;
 
@@ -96,6 +98,9 @@ internal static class CrossRegionController
         pfEnqueued = false;
         citySince = DateTime.MinValue;
         preTpAttempts = 0;
+        lifestreamStarted = false;
+        lifestreamWasBusy = false;
+        PluginLog.Information($"[AutoHunt] 跨区流程启动：前城市={PreCityName}(地图{PreCity.Territory})，时间表{P.Config.CrossRegionSchedule.Count}条");
         Notify.Info($"跨区流程已启动：先解散小队，之后传送至 {PreCityName} 跨区。");
     }
 
@@ -108,6 +113,8 @@ internal static class CrossRegionController
         wasBetweenAreas = false;
         citySince = DateTime.MinValue;
         preTpAttempts = 0;
+        lifestreamStarted = false;
+        lifestreamWasBusy = false;
     }
 
     public static void Update()
@@ -207,12 +214,28 @@ internal static class CrossRegionController
                 return;
             }
             targetWorld = next.Value.entry.World;
-            if (!S.LifestreamIPC.TryExecuteCommand(targetWorld))
+            if (string.IsNullOrWhiteSpace(targetWorld))
             {
-                Notify.Error($"跨区：Lifestream 命令不可用，无法跨区到「{targetWorld}」，已中止。");
+                Notify.Error("跨区：时间表条目未选择服务器，请在「跨区」标签的时间表中为该时间点选择服务器，已中止。");
                 Reset();
                 return;
             }
+            // 优先用 Lifestream ChangeWorld IPC（明确返回成功/失败），失败时退回 /li 命令
+            var cw = S.LifestreamIPC.TryChangeWorld(targetWorld);
+            PluginLog.Information($"[AutoHunt] 跨区：ChangeWorld({targetWorld}) → {cw?.ToString() ?? "IPC不可用"}");
+            if (cw == false)
+            {
+                Notify.Error($"跨区：Lifestream 拒绝切换到「{targetWorld}」（服务器名无效或 Lifestream 正忙），已中止。");
+                Reset();
+                return;
+            }
+            if (cw == null && !S.LifestreamIPC.TryExecuteCommand(targetWorld))
+            {
+                Notify.Error($"跨区：Lifestream IPC 不可用，无法跨区到「{targetWorld}」，已中止。");
+                Reset();
+                return;
+            }
+            lifestreamStarted = true;
             stepStart = DateTime.Now;
             wasBetweenAreas = false;
             phase = Phase.DcTravel;
@@ -240,6 +263,7 @@ internal static class CrossRegionController
                 Reset();
                 return;
             }
+            PluginLog.Information($"[AutoHunt] 跨区：第{preTpAttempts}次尝试传送至 {city.Name}（当前地图 {Svc.ClientState.TerritoryType}，目标地图 {city.Territory}，BetweenAreas={betweenAreas}，Interactable={Player.Interactable}）");
             if (!S.TeleporterIPC.TryTeleport(city.AetheryteId, 0)
                 && !S.LifestreamIPC.TryTeleport(city.AetheryteId))
             {
@@ -254,8 +278,19 @@ internal static class CrossRegionController
     {
         var betweenAreas = Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51];
         if (betweenAreas) wasBetweenAreas = true;
+        if (S.LifestreamIPC.GetIsBusy()) lifestreamWasBusy = true;
 
         var elapsed = (DateTime.Now - stepStart).TotalSeconds;
+
+        // 早期失败检测：30 秒内 Lifestream 从未忙过、也未发生读图 → 指令没有生效
+        if (elapsed > 30 && !wasBetweenAreas && !lifestreamWasBusy && !S.LifestreamIPC.GetIsBusy())
+        {
+            PluginLog.Information($"[AutoHunt] 跨区：30秒内 Lifestream 无任何动作（目标 {targetWorld}）");
+            Notify.Error($"跨区：Lifestream 未响应跨区指令（目标「{targetWorld}」）。请检查：①时间表中的服务器名是否正确 ②Lifestream 设置中「跨大区传送」是否开启。已中止。");
+            Reset();
+            return;
+        }
+
         // 跨区至少需要约 1 分钟（读图/切服）；要求至少经历过一次读图或切区，且 Lifestream 空闲、角色可操作
         if (elapsed > 60 && wasBetweenAreas && !betweenAreas
             && Player.Interactable && !S.LifestreamIPC.GetIsBusy())

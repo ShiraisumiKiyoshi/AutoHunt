@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.1.0.4",
+    "AssemblyVersion": "2.1.0.5",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.4.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.4.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.4.zip",
-    "LastUpdate": 1788525787,
-    "Changelog": "v2.1.0.4：跨区流程新增「解散小队」步骤——启用跨区功能后，取消车头会先自动解散小队（/pdisband，需为队长；20 秒内未能解散则提示后继续跨区），再传送至跨区前城市并立即跨区。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.5.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.5.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.5.zip",
+    "LastUpdate": 1788526793,
+    "Changelog": "v2.1.0.5：修复跨区指令不生效——改用 Lifestream 的 ChangeWorld IPC 直接切换世界（自动判断同区/跨区，服务器名无效或 Lifestream 忙时立即报错中止，不再静默等待）；时间表条目未选服务器时直接提示；跨区指令发出 30 秒内 Lifestream 无任何动作时自动中止并给出排查提示（服务器名/跨大区传送开关）；新增调试日志。"
   }
 ]
