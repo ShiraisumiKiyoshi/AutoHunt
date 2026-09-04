@@ -56,6 +56,17 @@ public class Config : IEzConfig
     /// <summary>停止输出的命令</summary>
     public string RotationStopCommand = "/rotation off";
 
+    // ===== 招募（队员招募） =====
+
+    /// <summary>启用一键创建队员招募按钮（设置窗口顶部按钮）</summary>
+    public bool PfinderEnable = true;
+
+    /// <summary>创建招募时设置青魔占位（自动勾选平均品级限制并设为 531 + 青魔职业占位）</summary>
+    public bool BluPlaceholder = false;
+
+    /// <summary>队员招募自由留言（创建招募时自动填入，最长 2 行 / 191 字节）</summary>
+    public string PfinderString = "";
+
     /// <summary>调试模式</summary>
     public bool Debug = false;
 }

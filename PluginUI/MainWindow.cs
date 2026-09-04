@@ -14,11 +14,34 @@ public class MainWindow : ConfigWindow
 
     public override void Draw()
     {
+        // 顶部：一键创建怪物狩猎招募
+        if (ImGui.Button("创建怪物狩猎招募", new Vector2(-1, 0)))
+        {
+            if (P.Config.PfinderEnable)
+            {
+                Tasks.TaskCreateHuntPF.Enqueue();
+            }
+            else
+            {
+                Notify.Error("一键创建招募按钮未启用，请在「招募」标签中开启。");
+            }
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip($"一键创建队员招募（青魔占位: {(P.Config.BluPlaceholder ? "开" : "关")}，留言: {(P.Config.PfinderString.IsNullOrEmpty() ? "无" : P.Config.PfinderString)}）");
+        }
+        ImGui.Separator();
+
         if (ImGui.BeginTabBar("AutoHuntTabs"))
         {
             if (ImGui.BeginTabItem("基本"))
             {
                 DrawBasicTab();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("招募"))
+            {
+                DrawRecruitTab();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem("高级"))
@@ -33,6 +56,26 @@ public class MainWindow : ConfigWindow
             }
             ImGui.EndTabBar();
         }
+    }
+
+    private void DrawRecruitTab()
+    {
+        if (ImGui.Checkbox("启用一键创建队员招募按钮", ref P.Config.PfinderEnable)) EzConfig.Save();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("启用后，设置窗口顶部的「创建怪物狩猎招募」按钮可用");
+
+        if (ImGui.Checkbox("启用创建招募时设置青魔站位", ref P.Config.BluPlaceholder)) EzConfig.Save();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("启用后，在创建队员招募时会自动设置青魔占位（选择青魔职业占位），并限定平均品级 531");
+
+        ImGui.Separator();
+        ImGui.Text("队员招募自由留言");
+        ImGui.SetNextItemWidth(-1);
+        var comment = P.Config.PfinderString ?? "";
+        if (ImGui.InputText("##pfindercomment", ref comment, 150))
+        {
+            P.Config.PfinderString = comment;
+            EzConfig.Save();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("创建招募时自动填入招募留言，最长 2 行（约 50 个汉字）");
     }
 
     private void DrawBasicTab()

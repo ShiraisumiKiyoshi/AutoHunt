@@ -3,9 +3,9 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.0.12.2",
+    "AssemblyVersion": "2.0.13.0",
     "Punchline": "自动狩猎车助手",
-    "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
+    "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "IsThirdParty": true,
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.12.2.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.12.2.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.12.2.zip",
-    "LastUpdate": 1788447353,
-    "Changelog": "v2.0.12.2：修复副本区切换被车头重复坐标吞掉——击杀满 N 只后启动切区传送时，车头为迟到玩家重复发送坐标会用不带切区标记的传送覆盖它，导致传送到达后不切区直接寻路。现在切区流程进行中（传送中/切区中）暂存车头最新坐标，切区完成后自动继续前往；/ah stop 与 /ah reset 清除暂存。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.13.0.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.13.0.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.0.13.0.zip",
+    "LastUpdate": 1788519319,
+    "Changelog": "v2.0.13.0：新增「一键创建怪物狩猎招募」功能（实现参照 HuntTrainAssistant）——设置窗口顶部新增创建招募按钮；新增「招募」标签：启用一键创建按钮开关、启用创建招募时设置青魔站位（自动设置青魔占位并限定平均品级 531）开关、队员招募自由留言文本框；开启后点击按钮自动打开招募面板、填写留言、选择狩猎分类并完成招募。"
   }
 ]
