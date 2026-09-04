@@ -81,19 +81,19 @@ public class Config : IEzConfig
     /// <summary>跨区完成后自动开启队员招募（需同时启用「启用一键创建队员招募」）</summary>
     public bool CrossRegionAutoPF = false;
 
-    /// <summary>狩猎时间表（时间 HHMM + 大区名）</summary>
+    /// <summary>狩猎时间表（时间 HHMM + 服务器名）</summary>
     public List<CrossRegionScheduleEntry> CrossRegionSchedule = new();
 
     /// <summary>调试模式</summary>
     public bool Debug = false;
 }
 
-/// <summary>狩猎时间表条目：本地时间 HHMM + 目标大区（数据中心名）。</summary>
+/// <summary>狩猎时间表条目：本地时间 HHMM + 目标服务器（世界名，取当前大区内的服务器）。</summary>
 public class CrossRegionScheduleEntry
 {
     /// <summary>时间，HHMM 格式（仅数字），如 0930</summary>
     public string Time = "";
 
-    /// <summary>大区（数据中心）名称</summary>
-    public string DataCenter = "";
+    /// <summary>目标服务器（世界）名称</summary>
+    public string World = "";
 }

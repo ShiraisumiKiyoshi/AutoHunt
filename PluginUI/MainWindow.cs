@@ -85,7 +85,7 @@ public class MainWindow : ConfigWindow
     }
 
     private static List<(uint Id, string Name)> cachedAetherytes;
-    private static List<string> cachedDataCenters;
+    private static List<string> cachedDcWorlds;
 
     private static List<(uint Id, string Name)> GetAetherytesCached()
     {
@@ -93,10 +93,10 @@ public class MainWindow : ConfigWindow
         return cachedAetherytes;
     }
 
-    private static List<string> GetDataCentersCached()
+    private static List<string> GetDcWorldsCached()
     {
-        if (cachedDataCenters == null) cachedDataCenters = CrossRegionController.GetDataCenters();
-        return cachedDataCenters;
+        if (cachedDcWorlds == null) cachedDcWorlds = CrossRegionController.GetCurrentDcWorlds();
+        return cachedDcWorlds;
     }
 
     private void DrawCrossRegionTab()
@@ -161,7 +161,7 @@ public class MainWindow : ConfigWindow
         // ===== 狩猎时间表 =====
         ImGui.Text("狩猎时间表");
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("取消车头后，将选择时间表中「本地时间的下一个」时间点对应的大区进行跨区；到点前会停留在跨区前城市等待");
+            ImGui.SetTooltip("取消车头后，将选择时间表中「本地时间的下一个」时间点对应的服务器进行跨区（列表为当前角色所在大区内的全部服务器）；到点前会停留在跨区前城市等待");
         if (ImGui.BeginTable("##crossschedule", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
         {
             ImGui.TableSetupColumn("时间", ImGuiTableColumnFlags.WidthFixed, 100);
@@ -193,18 +193,31 @@ public class MainWindow : ConfigWindow
 
                 ImGui.TableNextColumn();
                 ImGui.SetNextItemWidth(-1);
-                if (ImGui.BeginCombo("##dc", string.IsNullOrEmpty(e.DataCenter) ? "请选择大区" : e.DataCenter))
+                var worlds = GetDcWorldsCached();
+                var comboLabel = string.IsNullOrEmpty(e.World) ? "请选择服务器" : e.World;
+                if (worlds.Count == 0 && !string.IsNullOrEmpty(e.World)) comboLabel += "（当前大区列表不可用）";
+                if (ImGui.BeginCombo("##dc", comboLabel))
                 {
-                    foreach (var dc in GetDataCentersCached())
+                    if (worlds.Count == 0)
                     {
-                        if (ImGui.Selectable(dc, dc == e.DataCenter))
+                        ImGui.TextDisabled("无法读取当前大区的服务器列表");
+                        ImGui.TextDisabled("请登录角色后再编辑时间表");
+                    }
+                    else
+                    {
+                        foreach (var w in worlds)
                         {
-                            e.DataCenter = dc;
-                            EzConfig.Save();
+                            if (ImGui.Selectable(w, w == e.World))
+                            {
+                                e.World = w;
+                                EzConfig.Save();
+                            }
                         }
                     }
                     ImGui.EndCombo();
                 }
+                if (worlds.Count > 0 && ImGui.IsItemHovered())
+                    ImGui.SetTooltip("服务器列表取自角色当前所在大区；切换大区后重新打开本页面，列表会随之更新");
 
                 ImGui.TableNextColumn();
                 if (ImGui.SmallButton("删除"))

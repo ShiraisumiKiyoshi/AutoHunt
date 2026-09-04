@@ -1,4 +1,5 @@
 using AutoHunt.Tasks;
+using ECommons.ExcelServices;
 using ECommons.GameHelpers;
 using Lumina.Excel.Sheets;
 
@@ -7,7 +8,7 @@ namespace AutoHunt;
 /// <summary>
 /// 跨区（数据中心传送）控制器。
 /// 流程：取消车头 → 传送到「跨区前传送到城市」→ 等待本地时间到达狩猎时间表中的下一个时间点
-/// → 通过 Lifestream 跨区到对应大区 → 传送到「跨区后传送到水晶」（可选）
+/// → 通过 Lifestream 跨区到对应服务器 → 传送到「跨区后传送到水晶」（可选）
 /// → 按招募标签配置自动开启队员招募（可选，需同时启用「启用一键创建队员招募」）。
 /// 自带状态机，不占用 TaskManager（留给招募任务链等任务使用）。
 /// </summary>
@@ -18,7 +19,7 @@ internal static class CrossRegionController
     private static Phase phase = Phase.Inactive;
     private static DateTime stepStart = DateTime.MinValue;
     private static DateTime waitUntil = DateTime.MinValue;
-    private static string targetDc = "";
+    private static string targetWorld = "";
     private static bool pfEnqueued = false;
     private static bool wasBetweenAreas = false;
 
@@ -29,8 +30,8 @@ internal static class CrossRegionController
     {
         Phase.Inactive => "未运行",
         Phase.ToPreCity => $"前往跨区城市（{PreCityName}）",
-        Phase.WaitSchedule => $"等待时间表时间点（{waitUntil:HH:mm} → {targetDc}）",
-        Phase.DcTravel => $"跨区传送中（→ {targetDc}）",
+        Phase.WaitSchedule => $"等待时间表时间点（{waitUntil:HH:mm} → {targetWorld}）",
+        Phase.DcTravel => $"跨区传送中（→ {targetWorld}）",
         Phase.ToPostCrystal => "传送到跨区后水晶",
         Phase.CreatePF => "自动开启招募",
         _ => "未知",
@@ -85,7 +86,7 @@ internal static class CrossRegionController
         phase = Phase.ToPreCity;
         stepStart = DateTime.Now;
         wasBetweenAreas = false;
-        targetDc = "";
+        targetWorld = "";
         pfEnqueued = false;
         Notify.Info($"跨区流程已启动：先传送至 {PreCityName}，之后按狩猎时间表跨区。");
     }
@@ -94,7 +95,7 @@ internal static class CrossRegionController
     public static void Reset()
     {
         phase = Phase.Inactive;
-        targetDc = "";
+        targetWorld = "";
         waitUntil = DateTime.MinValue;
         pfEnqueued = false;
         wasBetweenAreas = false;
@@ -146,9 +147,9 @@ internal static class CrossRegionController
                 return;
             }
             waitUntil = ResolveNextTime(next.Value.time);
-            targetDc = next.Value.entry.DataCenter;
+            targetWorld = next.Value.entry.World;
             phase = Phase.WaitSchedule;
-            Notify.Info($"跨区：已到达 {city.Name}，将于 {waitUntil:HH:mm} 跨区至「{targetDc}」，请勿关闭游戏。");
+            Notify.Info($"跨区：已到达 {city.Name}，将于 {waitUntil:HH:mm} 跨区至「{targetWorld}」，请勿关闭游戏。");
             return;
         }
 
@@ -189,26 +190,26 @@ internal static class CrossRegionController
                 return;
             }
             var until = ResolveNextTime(next.Value.time);
-            if (targetDc != next.Value.entry.DataCenter || until != waitUntil)
+            if (targetWorld != next.Value.entry.World || until != waitUntil)
             {
-                targetDc = next.Value.entry.DataCenter;
+                targetWorld = next.Value.entry.World;
                 waitUntil = until;
-                Notify.Info($"跨区：时间表已更新，将于 {waitUntil:HH:mm} 跨区至「{targetDc}」");
+                Notify.Info($"跨区：时间表已更新，将于 {waitUntil:HH:mm} 跨区至「{targetWorld}」");
             }
         }
 
         if (DateTime.Now >= waitUntil)
         {
-            if (!S.LifestreamIPC.TryExecuteCommand(targetDc))
+            if (!S.LifestreamIPC.TryExecuteCommand(targetWorld))
             {
-                Notify.Error($"跨区：Lifestream 命令不可用，无法跨区到「{targetDc}」，已中止。");
+                Notify.Error($"跨区：Lifestream 命令不可用，无法跨区到「{targetWorld}」，已中止。");
                 Reset();
                 return;
             }
             stepStart = DateTime.Now;
             wasBetweenAreas = false;
             phase = Phase.DcTravel;
-            Notify.Info($"跨区：到达预定时间，开始跨区至「{targetDc}」…");
+            Notify.Info($"跨区：到达预定时间，开始跨区至「{targetWorld}」…");
         }
     }
 
@@ -227,7 +228,7 @@ internal static class CrossRegionController
             phase = Phase.ToPostCrystal;
             stepStart = DateTime.Now;
             wasBetweenAreas = false;
-            Notify.Info($"跨区：已到达「{targetDc}」。");
+            Notify.Info($"跨区：已到达「{targetWorld}」。");
             return;
         }
 
@@ -371,25 +372,51 @@ internal static class CrossRegionController
         return h * 60 + m;
     }
 
-    /// <summary>获取当前游戏数据中的全部大区（数据中心）名称。</summary>
-    public static List<string> GetDataCenters()
+    /// <summary>
+    /// 获取玩家当前所在大区（数据中心）内的全部公共服务器（世界）名称。
+    /// 角色不可用时返回空列表（UI 会回退为手动输入）。
+    /// </summary>
+    public static List<string> GetCurrentDcWorlds()
     {
         var list = new List<string>();
         try
         {
-            foreach (var dc in Svc.Data.GetExcelSheet<WorldDCGroupType>())
+            var dcRowId = 0u;
+            if (Player.Available)
             {
-                if (dc.RowId == 0) continue;
-                var name = dc.Name.GetText();
-                if (string.IsNullOrEmpty(name)) continue;
-                list.Add(name);
+                var cw = Player.Object.CurrentWorld;
+                if (cw.RowId != 0) dcRowId = cw.Value.DataCenter.Value.RowId;
+                else
+                {
+                    var hw = Player.Object.HomeWorld;
+                    if (hw.RowId != 0) dcRowId = hw.Value.DataCenter.Value.RowId;
+                }
+            }
+            if (dcRowId == 0) return list;
+
+            foreach (var w in ExcelWorldHelper.GetPublicWorlds(dcRowId))
+            {
+                var name = w.Name.ToString();
+                if (!string.IsNullOrEmpty(name)) list.Add(name);
             }
         }
         catch (Exception e)
         {
-            PluginLog.Warning($"[AutoHunt] 读取大区列表失败: {e.Message}");
+            PluginLog.Warning($"[AutoHunt] 读取当前大区服务器列表失败: {e.Message}");
         }
-        return list;
+        return list.OrderBy(x => x).ToList();
+    }
+
+    /// <summary>获取角色当前所在服务器（世界）名称，用于流程提示。</summary>
+    public static string GetCurrentWorldName()
+    {
+        try
+        {
+            if (!Player.Available) return "";
+            var cw = Player.Object.CurrentWorld;
+            return cw.RowId != 0 ? cw.Value.Name.ToString() : "";
+        }
+        catch { return ""; }
     }
 
     /// <summary>获取可传送水晶列表（RowId, 显示名），按名称排序。</summary>
