@@ -7,14 +7,14 @@ namespace AutoHunt;
 
 /// <summary>
 /// 跨区（数据中心传送）控制器。
-/// 流程：取消车头 → 传送到「跨区前传送到城市」→ 立即跨区到狩猎时间表中「本地时间下一个时间点」对应的服务器（无需等待到点）
+/// 流程：取消车头 → 解散小队（如在小队中）→ 传送到「跨区前传送到城市」→ 立即跨区到狩猎时间表中「本地时间下一个时间点」对应的服务器（无需等待到点）
 /// → 传送到「跨区后传送到水晶」（可选）
 /// → 按招募标签配置自动开启队员招募（可选，需同时启用「启用一键创建队员招募」）。
 /// 自带状态机，不占用 TaskManager（留给招募任务链等任务使用）。
 /// </summary>
 internal static class CrossRegionController
 {
-    private enum Phase { Inactive, ToPreCity, DcTravel, ToPostCrystal, CreatePF }
+    private enum Phase { Inactive, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, CreatePF }
 
     private static Phase phase = Phase.Inactive;
     private static DateTime stepStart = DateTime.MinValue;
@@ -30,6 +30,7 @@ internal static class CrossRegionController
     internal static string CurrentState => phase switch
     {
         Phase.Inactive => "未运行",
+        Phase.DisbandParty => "解散小队",
         Phase.ToPreCity => $"前往跨区城市（{PreCityName}）",
         Phase.DcTravel => $"跨区传送中（→ {targetWorld}）",
         Phase.ToPostCrystal => "传送到跨区后水晶",
@@ -88,14 +89,14 @@ internal static class CrossRegionController
         HuntController.Reset();
 
         Reset();
-        phase = Phase.ToPreCity;
+        phase = Phase.DisbandParty;
         stepStart = DateTime.Now;
         wasBetweenAreas = false;
         targetWorld = "";
         pfEnqueued = false;
         citySince = DateTime.MinValue;
         preTpAttempts = 0;
-        Notify.Info($"跨区流程已启动：先传送至 {PreCityName}，之后按狩猎时间表跨区。");
+        Notify.Info($"跨区流程已启动：先解散小队，之后传送至 {PreCityName} 跨区。");
     }
 
     /// <summary>停止并复位跨区流程。</summary>
@@ -134,6 +135,7 @@ internal static class CrossRegionController
         {
             switch (phase)
             {
+                case Phase.DisbandParty: UpdateDisbandParty(); break;
                 case Phase.ToPreCity: UpdateToPreCity(); break;
                     case Phase.DcTravel: UpdateDcTravel(); break;
                 case Phase.ToPostCrystal: UpdateToPostCrystal(); break;
@@ -146,6 +148,40 @@ internal static class CrossRegionController
             Notify.Error("跨区流程出现异常，已中止。详见日志。");
             Reset();
         }
+    }
+
+    // ===== 阶段 0：解散小队 =====
+
+    private static void UpdateDisbandParty()
+    {
+        // 不在任何小队中（Svc.Party 不含未组队的自己）→ 直接进入下一阶段
+        if (Svc.Party.Count == 0)
+        {
+            EnterToPreCity("跨区：当前没有小队，直接开始传送。");
+            return;
+        }
+
+        if ((DateTime.Now - stepStart).TotalSeconds > 20)
+        {
+            Notify.Warning("跨区：解散小队超时（可能不是队长，无权解散），继续跨区流程。");
+            EnterToPreCity(null);
+            return;
+        }
+
+        // 节流执行 /pdisband（仅队长有效），等待队伍解散
+        if (EzThrottler.Throttle("WYCrossDisband", 3000))
+        {
+            Chat.Instance.ExecuteCommand("/pdisband");
+        }
+    }
+
+    private static void EnterToPreCity(string msg)
+    {
+        if (msg != null) Notify.Info(msg);
+        phase = Phase.ToPreCity;
+        stepStart = DateTime.Now;
+        citySince = DateTime.MinValue;
+        preTpAttempts = 0;
     }
 
     // ===== 阶段 1：传送到跨区前城市 =====

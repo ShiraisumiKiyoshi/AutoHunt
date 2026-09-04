@@ -103,7 +103,7 @@ public class MainWindow : ConfigWindow
     {
         if (ImGui.Checkbox("启用跨区功能", ref P.Config.CrossRegionEnable)) EzConfig.Save();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("启用后，取消车头时自动执行跨区流程：\n取消车头 → 传送到跨区前城市 → 到达狩猎时间表中本地时间的下一个时间点后跨区到对应大区 → 传送到跨区后水晶 →（可选）自动开启招募");
+            ImGui.SetTooltip("启用后，取消车头时自动执行跨区流程：\n取消车头 → 解散小队 → 传送到跨区前城市 → 立即跨区到狩猎时间表中本地时间下一个时间点对应的服务器 → 传送到跨区后水晶 →（可选）自动开启招募");
 
         ImGui.TextUnformatted($"跨区流程状态: {CrossRegionController.CurrentState}");
         ImGui.Separator();
