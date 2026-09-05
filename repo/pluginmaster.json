@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.1.0.6",
+    "AssemblyVersion": "2.1.0.7",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.6.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.6.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.6.zip",
-    "LastUpdate": 1788527264,
-    "Changelog": "v2.1.0.6：修复「一直重复传送、不跨区」的根因——格里达尼亚新街的到达判定地图 ID 写错（133 为旧街，新街水晶实际落在 132），导致传送成功但永远判定未到达而反复传送；现改为 132，到达后立即跨区。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.7.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.7.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.7.zip",
+    "LastUpdate": 1788610510,
+    "Changelog": "v2.1.0.7：修复首次传送到可切换副本区的地图时不自动切换到 1 号副本区——原判定在 TerritoryChanged 事件（读图瞬间）执行，此时副本区数据尚未就绪（数量返回 1）导致判定错过且不会重试；现改为每秒重试，读到有效副本区数据后自动切换。"
   }
 ]

@@ -51,14 +51,9 @@ internal static unsafe class InstanceController
         markedMobIds.Clear();
         cachedInstanceCount = 0;
         cachedCurrentInstance = 0;
-        if (!P.Config.Enabled || !P.Config.AutoInstance || territory == 0) return;
-
-        // 首次进入可切副本区的地图 → 保证 1 号副本区
-        if (!ensuredTerritories.Contains(territory) && S.LifestreamIPC.GetInstanceCount() > 1)
-        {
-            ensuredTerritories.Add(territory);
-            pendingEnsureInstanceOne = true;
-        }
+        // 注意：首次进图"保证 1 号副本区"的检测不在事件里做——
+        // TerritoryChanged 触发瞬间（读图中）副本区数据尚未就绪，GetInstanceCount 返回 1，
+        // 在这里判定会错过时机且不会重试；改由 Update() 每秒重试直到读到有效数据。
     }
 
     /// <summary>外部请求保证 1 号副本区（跨图传送到达后）。</summary>
@@ -115,6 +110,18 @@ internal static unsafe class InstanceController
         {
             cachedInstanceCount = S.LifestreamIPC.GetInstanceCount();
             cachedCurrentInstance = S.LifestreamIPC.GetCurrentInstanceNumber();
+        }
+
+        // 首次进入可切副本区的地图 → 保证 1 号副本区
+        // 读图后副本区数据延迟就绪，这里每秒重试，读到有效数据后标记该地图已处理并请求切换
+        if (P.Config.Enabled && P.Config.AutoInstance && EzThrottler.Throttle("WYEnsureScan", 1000))
+        {
+            var territory = Svc.ClientState.TerritoryType;
+            if (territory != 0 && !ensuredTerritories.Contains(territory) && S.LifestreamIPC.GetInstanceCount() > 1)
+            {
+                ensuredTerritories.Add(territory);
+                pendingEnsureInstanceOne = true;
+            }
         }
 
         if (!pendingEnsureInstanceOne) return;
