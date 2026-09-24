@@ -192,7 +192,7 @@ public unsafe class AutoHunt : IDalamudPlugin
 
         if (data.SwitchInstance > 0)
         {
-            if (S.LifestreamIPC.GetInstanceCount() > 1)
+            if (InstanceController.IsInstancedAreaNow())
             {
                 Notify.Info($"到达目的地，切换到 {data.SwitchInstance} 号副本区…");
                 SwitchInProgress = true;
@@ -202,7 +202,7 @@ public unsafe class AutoHunt : IDalamudPlugin
             }
             else
             {
-                Notify.Error($"地图副本区数据不可用（数量 ≤ 1），跳过切区，直接前往坐标。");
+                Notify.Error($"当前地图不可切换副本区，直接前往坐标。");
             }
             // 切区完成后，HuntController 继续等待/前往车头坐标
             return;

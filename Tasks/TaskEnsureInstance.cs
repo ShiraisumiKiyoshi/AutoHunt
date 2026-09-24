@@ -17,8 +17,9 @@ public static class TaskEnsureInstance
         P.TaskManager.Enqueue(() => Player.Interactable && IsScreenReady(), "等待加载完成");
         P.TaskManager.Enqueue(() =>
         {
-            var count = S.LifestreamIPC.GetInstanceCount();
-            if (count == 0 || num == 0 || S.LifestreamIPC.GetCurrentInstanceNumber() == num)
+            // 不可切副本区的地图（原生判定）或已在目标副本区 → 跳过
+            if (num == 0 || !InstanceController.IsInstancedAreaNow()
+                || S.LifestreamIPC.GetCurrentInstanceNumber() == num)
             {
                 return true;
             }
@@ -28,9 +29,9 @@ public static class TaskEnsureInstance
                 P.TaskManager.Enqueue(() => IsScreenReady() && Player.Interactable);
                 P.TaskManager.Enqueue(() =>
                 {
-                    if (!S.LifestreamIPC.GetCanChangeInstance())
+                    // 不在水晶旁且尚不可切区 → 先走向最近水晶
+                    if (!S.LifestreamIPC.GetCanChangeInstance() && !NearInstanceAetheryte())
                     {
-                        // 不在水晶旁：走向最近水晶
                         var nearestAetheryte = Svc.Objects
                             .Where(x => x.ObjectKind == ObjectKind.Aetheryte && x.IsTargetable)
                             .OrderBy(x => Vector3.Distance(Player.Position, x.Position))
@@ -56,16 +57,20 @@ public static class TaskEnsureInstance
                 P.TaskManager.Enqueue(() =>
                 {
                     if (S.LifestreamIPC.GetCurrentInstanceNumber() == num) return true;
-                    if (S.LifestreamIPC.GetCanChangeInstance())
-                    {
-                        Chat.ExecuteCommand("/automove off");
-                        S.LifestreamIPC.TryChangeInstance(num);
-                        return true;
-                    }
-                    return false;
-                }, new TaskManagerConfiguration(timeLimitMS: 15000));
+                    // 就近水晶判定（与 Lifestream 内部交互条件一致，11 码）：
+                    // 不依赖 GetCanChangeInstance——它受 Lifestream「显示副本区切换器」设置影响
+                    if (!NearInstanceAetheryte()) return false;
+                    Chat.ExecuteCommand("/automove off");
+                    S.LifestreamIPC.TryChangeInstance(num);
+                    return true;
+                }, new TaskManagerConfiguration(timeLimitMS: 30000));
             });
             return true;
         });
     }
+
+    /// <summary>是否站在可交互的副本区水晶旁（与 Lifestream GetAetheryte 的 11 码判定一致）。</summary>
+    private static bool NearInstanceAetheryte() =>
+        Svc.Objects.Any(x => x.ObjectKind == ObjectKind.Aetheryte && x.IsTargetable
+            && Vector3.Distance(Player.Position, x.Position) < 11f);
 }

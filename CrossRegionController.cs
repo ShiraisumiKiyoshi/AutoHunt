@@ -23,6 +23,7 @@ internal static class CrossRegionController
     private static bool wasBetweenAreas = false;
     private static DateTime citySince = DateTime.MinValue;
     private static int preTpAttempts = 0;
+    private static bool hadParty = false;            // 触发跨区时是否曾处于小队中（用于提示语区分）
     private static bool lifestreamStarted = false;   // DcTravel 触发时 Lifestream 是否已接受指令
     private static bool lifestreamWasBusy = false;   // DcTravel 期间是否观察到 Lifestream 忙
 
@@ -100,6 +101,7 @@ internal static class CrossRegionController
         preTpAttempts = 0;
         lifestreamStarted = false;
         lifestreamWasBusy = false;
+        hadParty = false;
         PluginLog.Information($"[AutoHunt] 跨区流程启动：前城市={PreCityName}(地图{PreCity.Territory})，时间表{P.Config.CrossRegionSchedule.Count}条");
         Notify.Info($"跨区流程已启动：先解散小队，之后传送至 {PreCityName} 跨区。");
     }
@@ -115,6 +117,7 @@ internal static class CrossRegionController
         preTpAttempts = 0;
         lifestreamStarted = false;
         lifestreamWasBusy = false;
+        hadParty = false;
     }
 
     public static void Update()
@@ -164,22 +167,49 @@ internal static class CrossRegionController
         // 不在任何小队中（Svc.Party 不含未组队的自己）→ 直接进入下一阶段
         if (Svc.Party.Count == 0)
         {
-            EnterToPreCity("跨区：当前没有小队，直接开始传送。");
+            EnterToPreCity(hadParty ? "跨区：已脱离小队，开始传送。" : "跨区：当前没有小队，直接开始传送。");
             return;
         }
+        hadParty = true;
 
-        if ((DateTime.Now - stepStart).TotalSeconds > 20)
+        // 自动点掉"是否解散队伍"确认框（只确认内容含"解散"的弹窗，避免误点其他确认）
+        ConfirmDisbandDialog();
+
+        if ((DateTime.Now - stepStart).TotalSeconds > 15)
         {
-            Notify.Warning("跨区：解散小队超时（可能不是队长，无权解散），继续跨区流程。");
-            EnterToPreCity(null);
+            // 解散超时（通常不是队长，无权解散）：退而求其次自行退出队伍
+            if (EzThrottler.Throttle("WYCrossLeave", 5000))
+            {
+                Notify.Warning("跨区：解散队伍超时（可能不是队长，无权解散），改为自行退出队伍。");
+                Chat.Instance.ExecuteCommand("/leave");
+            }
+            if ((DateTime.Now - stepStart).TotalSeconds > 40)
+            {
+                Notify.Warning("跨区：退出队伍也超时，跳过解散直接继续跨区流程。");
+                EnterToPreCity(null);
+            }
             return;
         }
 
-        // 节流执行 /pdisband（仅队长有效），等待队伍解散
+        // 节流执行解散命令（游戏无 /pdisband，正确命令为 /pcmd breakup），等待队伍解散
         if (EzThrottler.Throttle("WYCrossDisband", 3000))
         {
-            Chat.Instance.ExecuteCommand("/pdisband");
+            Chat.Instance.ExecuteCommand("/pcmd breakup");
         }
+    }
+
+    /// <summary>自动确认"解散队伍"弹窗（仅当弹窗文本包含"解散"时点"是"）。</summary>
+    private static void ConfirmDisbandDialog()
+    {
+        try
+        {
+            var addon = Svc.GameGui.GetAddonByName("SelectYesno");
+            if (addon == nint.Zero) return;
+            if (!EzThrottler.Throttle("WYCrossDisbandYes", 500)) return;
+            var m = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.SelectYesno(addon);
+            if (m.Text.Contains("解散")) m.Yes();
+        }
+        catch { }
     }
 
     private static void EnterToPreCity(string msg)

@@ -56,6 +56,24 @@ internal static unsafe class InstanceController
         // 在这里判定会错过时机且不会重试；改由 Update() 每秒重试直到读到有效数据。
     }
 
+    /// <summary>
+    /// 当前是否处于可切换副本区的地图（游戏原生判定：InstanceId≠0）。
+    /// 不要用 Lifestream 的 GetInstanceCount 判定——它依赖 Lifestream 自己"学习"的地图数据，
+    /// 未学习过的地图返回 0，会导致可切区的地图被误判为不可切。
+    /// </summary>
+    public static bool IsInstancedAreaNow()
+    {
+        var ui = FFXIVClientStructs.FFXIV.Client.Game.UI.UIState.Instance();
+        return ui != null && ui->PublicInstance.InstanceId != 0;
+    }
+
+    /// <summary>当前所在副本区号（游戏原生，0=不可切区地图）。</summary>
+    public static int GetNativeInstanceId()
+    {
+        var ui = FFXIVClientStructs.FFXIV.Client.Game.UI.UIState.Instance();
+        return ui != null ? (int)ui->PublicInstance.InstanceId : 0;
+    }
+
     /// <summary>外部请求保证 1 号副本区（跨图传送到达后）。</summary>
     public static void RequestEnsureInstanceOne() => pendingEnsureInstanceOne = true;
 
@@ -113,11 +131,12 @@ internal static unsafe class InstanceController
         }
 
         // 首次进入可切副本区的地图 → 保证 1 号副本区
-        // 读图后副本区数据延迟就绪，这里每秒重试，读到有效数据后标记该地图已处理并请求切换
+        // 读图后副本区数据延迟就绪，这里每秒重试；用原生判定（Lifestream 的
+        // GetInstanceCount 依赖其"学习"的地图数据，未学习过的地图返回 0，不可靠）
         if (P.Config.Enabled && P.Config.AutoInstance && EzThrottler.Throttle("WYEnsureScan", 1000))
         {
             var territory = Svc.ClientState.TerritoryType;
-            if (territory != 0 && !ensuredTerritories.Contains(territory) && S.LifestreamIPC.GetInstanceCount() > 1)
+            if (territory != 0 && !ensuredTerritories.Contains(territory) && IsInstancedAreaNow())
             {
                 ensuredTerritories.Add(territory);
                 pendingEnsureInstanceOne = true;
@@ -130,7 +149,7 @@ internal static unsafe class InstanceController
         if (Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51]) return;
 
         pendingEnsureInstanceOne = false;
-        if (S.LifestreamIPC.GetInstanceCount() > 1 && S.LifestreamIPC.GetCurrentInstanceNumber() != 1)
+        if (IsInstancedAreaNow() && GetNativeInstanceId() != 1)
         {
             Notify.Info("首次进入该地图，切换到 1 号副本区…");
             HuntController.Reset();
@@ -248,12 +267,13 @@ internal static unsafe class InstanceController
         if (killCount < P.Config.KillsPerInstance) return;
         if (pendingSwitchInstance != 0) return; // 已在等待切换
 
-        var count = S.LifestreamIPC.GetInstanceCount();
-        if (count <= 1) return; // 当前地图不可切副本区
+        var current = S.LifestreamIPC.GetCurrentInstanceNumber();
+        if (current == 0) return; // 原生判定：当前地图不可切副本区
 
         killCount = 0;
-        var current = S.LifestreamIPC.GetCurrentInstanceNumber();
-        var next = current >= count ? 1 : current + 1;
+        // Lifestream 学习到的该地图副本区总数（未学习过为 0）；已学到时用于回绕到 1 号区
+        var count = S.LifestreamIPC.GetInstanceCount();
+        var next = (count > 1 && current >= count) ? 1 : current + 1;
         pendingSwitchInstance = next;
 
         Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，等待车头发送新坐标后切换到 {next} 号副本区…");
