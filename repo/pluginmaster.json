@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.1.0.8",
+    "AssemblyVersion": "2.1.0.9",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；上坐骑后执行 /vnav flyflag 飞向旗标（可选 IPC 直接寻路）；到达后自动选中狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.8.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.8.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.8.zip",
-    "LastUpdate": 1790254911,
-    "Changelog": "v2.1.0.8：两项修复——①副本区判定改用游戏原生数据：此前依赖 Lifestream 的 GetNumberOfInstances，而该接口只返回 Lifestream 自己\"学习\"过的地图数据（未与该地图水晶交互过则返回 0），导致首次进入可切副本区的地图不自动切 1 号区、击杀满后切区也可能跳过；②跨区流程解散队伍改用正确的 /pcmd breakup 命令（/pdisband 不存在）并自动确认解散弹窗；非队长解散超时后自动改为 /leave 退队后继续跨区；切区寻路不再依赖 Lifestream「显示副本区切换器」设置。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.9.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.9.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.1.0.9.zip",
+    "LastUpdate": 1790256179,
+    "Changelog": "v2.1.0.9：新增「地图狩猎怪扫描」——状态页自动扫描当前地图对象表中的全部狩猎怪（基于 NotoriousMonster 数据表判定，零误判），显示等级（A/S/B）、名称、血量、距离与游戏地图坐标，点击名称可选中对应怪物，支持一键复制全部信息；进图后每秒自动刷新，切图自动重新扫描。"
   }
 ]

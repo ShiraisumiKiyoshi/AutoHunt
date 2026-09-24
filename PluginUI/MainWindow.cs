@@ -337,6 +337,9 @@ public class MainWindow : ConfigWindow
         }
 
         ImGui.Separator();
+        DrawHuntScanSection();
+
+        ImGui.Separator();
         ImGui.TextUnformatted("依赖插件:");
         foreach (var (label, feature, installed, required) in DependencyChecker.GetDependencyStatus())
         {
@@ -347,5 +350,82 @@ public class MainWindow : ConfigWindow
                     : new Vector4(1f, 0.8f, 0.2f, 1f);
             ImGui.TextColored(color, $"  {(installed ? "√" : "×")} {label}{(required ? "（必需）" : "")} — {feature}");
         }
+    }
+
+    /// <summary>状态页：当前地图狩猎怪扫描（进图后自动扫描，每秒刷新）。</summary>
+    private void DrawHuntScanSection()
+    {
+        ImGui.TextUnformatted("地图狩猎怪扫描:");
+        if (!Player.Available)
+        {
+            ImGui.TextDisabled("  请登录角色后扫描");
+            return;
+        }
+
+        var entries = HuntScanService.GetSnapshot();
+        var alive = entries.Count(e => !e.IsDead);
+        ImGui.TextUnformatted($"  上次扫描: {HuntScanService.LastScanTime:HH:mm:ss} ｜ 存活 {alive} 只 / 共 {entries.Count} 只 ｜ 每秒自动刷新，切图后自动重新扫描");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("扫描范围：客户端对象表已加载区域（角色周围约 100 米内）\n点击表格行可选中对应怪物；坐标为游戏地图显示坐标");
+
+        if (entries.Count == 0)
+        {
+            ImGui.TextDisabled("  周围未发现狩猎怪（对象加载范围内）");
+            return;
+        }
+
+        if (ImGui.Button("复制全部信息"))
+        {
+            var lines = entries.Select(e =>
+                $"{e.Name} [{e.Rank}] ({e.MapPos.X:0.0}, {e.MapPos.Y:0.0}) 血量{e.HpPercent:0}% {(e.IsDead ? "已死亡" : "存活")}");
+            ImGui.SetClipboardText(string.Join("\n", lines));
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("按「名称 [等级] (X, Y) 血量 状态」格式复制到剪贴板");
+
+        ImGui.BeginChild("huntScanList", new Vector2(0, ImGui.GetTextLineHeightWithSpacing() * Math.Min(entries.Count, 8) + 8), true);
+        if (ImGui.BeginTable("huntScanTable", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY))
+        {
+            ImGui.TableSetupColumn("等级", ImGuiTableColumnFlags.WidthFixed, 36);
+            ImGui.TableSetupColumn("名称");
+            ImGui.TableSetupColumn("血量", ImGuiTableColumnFlags.WidthFixed, 64);
+            ImGui.TableSetupColumn("距离", ImGuiTableColumnFlags.WidthFixed, 64);
+            ImGui.TableSetupColumn("地图坐标", ImGuiTableColumnFlags.WidthFixed, 96);
+            ImGui.TableHeadersRow();
+
+            foreach (var e in entries)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableSetColumnIndex(0);
+                // 等级着色：S=紫红 A=橙红 B=灰
+                var rankColor = e.Rank switch
+                {
+                    "S" => new Vector4(0.8f, 0.5f, 1f, 1f),
+                    "A" => new Vector4(1f, 0.6f, 0.3f, 1f),
+                    _ => new Vector4(0.7f, 0.7f, 0.7f, 1f),
+                };
+                ImGui.TextColored(rankColor, e.Rank);
+                ImGui.TableSetColumnIndex(1);
+                // 点击名称选中怪物
+                if (ImGui.Selectable(e.Name + "##" + e.GameObjectId))
+                {
+                    var mob = HuntScanService.FindById(e.GameObjectId);
+                    if (mob != null && mob.IsTargetable)
+                    {
+                        Svc.Targets.Target = mob;
+                    }
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip($"点击选中「{e.Name}」\n地图坐标 ({e.MapPos.X:0.0}, {e.MapPos.Y:0.0})\n对象ID: {e.GameObjectId:X}");
+                }
+                ImGui.TableSetColumnIndex(2);
+                ImGui.TextUnformatted(e.IsDead ? "死亡" : $"{e.HpPercent:0}%");
+                ImGui.TableSetColumnIndex(3);
+                ImGui.TextUnformatted($"{e.Distance:0}m");
+                ImGui.TableSetColumnIndex(4);
+                ImGui.TextUnformatted($"({e.MapPos.X:0.0}, {e.MapPos.Y:0.0})");
+            }
+            ImGui.EndTable();
+        }
+        ImGui.EndChild();
     }
 }
