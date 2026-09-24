@@ -32,6 +32,12 @@ internal class TargetPosition
     /// <summary>水晶名称（用于提示）</summary>
     public string AetheryteName = "";
 
+    /// <summary>命中的狩猎怪出生点 BNpcName RowId（0 = 未命中出生点，坐标原样使用）</summary>
+    public uint MatchedNameId = 0;
+
+    /// <summary>命中的狩猎怪等级标签（A/S/SS/SS+/B，未命中为空）</summary>
+    public string MatchedRank = "";
+
     public static TargetPosition? CreateOrNull(uint territoryId, Vector2 worldXZ, Aetheryte? aetheryte, string aetheryteName)
     {
         if (territoryId == 0) return null;

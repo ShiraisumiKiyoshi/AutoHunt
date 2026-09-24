@@ -151,9 +151,29 @@ internal static class ChatMessageHandler
 
     /// <summary>
     /// 核心：收到坐标后，先判断击杀数是否已满 → 切区 / 传送 / 直接寻路。
+    /// 若「狩猎怪出生点辅助」开启且坐标命中数据库出生点（默认 100 米内），
+    /// 目标坐标会被替换为出生点坐标（车头坐标常有偏差，出生点即怪物实际位置）。
     /// </summary>
     internal static void HandleTargetPosition(uint targetTerritory, Vector2 targetWorld)
     {
+        // 出生点匹配：在改写目标坐标前完成（水晶也按出生点重新计算）
+        uint matchNameId = 0;
+        string matchRank = "";
+        if (P.Config.UseSpawnPoints && targetTerritory != 0)
+        {
+            if (HuntSpawnDatabase.TryMatchSpawn(targetTerritory, targetWorld, P.Config.SpawnMatchRadius, out matchNameId, out matchRank, out var spawnWorld))
+            {
+                if (P.Config.Debug)
+                    PluginLog.Debug($"[AutoHunt] 车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0}) 命中 [{matchRank}] 级狩猎怪出生点 ({spawnWorld.X:0.0}, {spawnWorld.Y:0.0})，偏差 {Vector2.Distance(targetWorld, spawnWorld):0.0}m");
+                targetWorld = spawnWorld;
+            }
+            else
+            {
+                matchNameId = 0;
+                matchRank = "";
+            }
+        }
+
         var nearest = MapManager.GetNearestAetheryte(targetTerritory, targetWorld);
         if (nearest == null)
         {
@@ -164,6 +184,8 @@ internal static class ChatMessageHandler
 
         var tp = TargetPosition.CreateOrNull(targetTerritory, targetWorld, nearest, aetheryteName);
         if (tp == null) return;
+        tp.MatchedNameId = matchNameId;
+        tp.MatchedRank = matchRank;
 
         // 判断击杀数是否已满，需要切换副本区
         var pendingSwitch = InstanceController.PendingSwitchInstance;

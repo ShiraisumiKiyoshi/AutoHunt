@@ -265,6 +265,15 @@ public class MainWindow : ConfigWindow
         if (ImGui.Checkbox("包含 B 级狩猎怪", ref P.Config.IncludeBRank)) EzConfig.Save();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("默认仅锁定 A/S 级狩猎怪（按游戏数据表判定，零误判）；勾选后 B 级也作为目标");
 
+        if (ImGui.Checkbox("启用狩猎怪出生点辅助", ref P.Config.UseSpawnPoints)) EzConfig.Save();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("车头坐标与数据库出生点距离小于匹配半径时，自动前往出生点等待并监控怪物\n（车头坐标常有偏差，出生点即怪物实际刷新位置；数据库覆盖 A/S/SS/SS+/B 级约 200 只怪）\n命中后等待怪物刷新的时间延长至 5 分钟，期间不跟随队友");
+        if (P.Config.UseSpawnPoints)
+        {
+            ImGui.SetNextItemWidth(200);
+            if (ImGui.SliderFloat("出生点匹配半径 (米)", ref P.Config.SpawnMatchRadius, 30f, 300f)) EzConfig.Save();
+        }
+
         ImGui.Separator();
         ImGui.Text("狩猎流程参数");
         ImGui.SetNextItemWidth(200);
@@ -325,6 +334,9 @@ public class MainWindow : ConfigWindow
         ImGui.TextUnformatted($"  目标怪物: {(string.IsNullOrEmpty(HuntController.CurrentTargetName) ? "无" : string.IsNullOrEmpty(rank) ? HuntController.CurrentTargetName : $"[{rank}] {HuntController.CurrentTargetName}")}");
         ImGui.TextUnformatted($"  目标血量: {HuntController.CurrentTargetHpPercent:0}%");
         ImGui.TextUnformatted($"  狩猎怪库: {HuntMobDatabase.RankMap.Count} 只已加载");
+        if (HuntController.SpawnMatched)
+            ImGui.TextColored(new Vector4(0.6f, 0.9f, 1f, 1f),
+                $"  出生点辅助: [{HuntController.SpawnMatchRank}] 级（前往出生点等待/监控中）");
 
         ImGui.Separator();
         ImGui.TextUnformatted("副本区状态:");

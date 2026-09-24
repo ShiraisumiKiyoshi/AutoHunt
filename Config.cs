@@ -17,6 +17,12 @@ public class Config : IEzConfig
     /// <summary>将 B 级狩猎怪也作为目标（默认仅 A/S 级，狩猎车场景 B 级常驻刷新易误选）</summary>
     public bool IncludeBRank = false;
 
+    /// <summary>启用狩猎怪出生点辅助：车头坐标命中数据库出生点时，前往出生点等待并监控狩猎怪</summary>
+    public bool UseSpawnPoints = true;
+
+    /// <summary>车头坐标与出生点的匹配半径（米）</summary>
+    public float SpawnMatchRadius = 100f;
+
     /// <summary>自动切换副本区</summary>
     public bool AutoInstance = true;
 

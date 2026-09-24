@@ -35,6 +35,12 @@ internal static unsafe class HuntController
     public static string CurrentTargetRank { get; private set; } = "";
     public static float CurrentTargetHpPercent { get; private set; } = 100f;
 
+    /// <summary>当前目标是否命中狩猎怪出生点辅助。</summary>
+    public static bool SpawnMatched => pendingTarget != null && pendingTarget.MatchedNameId != 0;
+
+    /// <summary>命中的出生点等级标签（未命中为空）。</summary>
+    public static string SpawnMatchRank => pendingTarget?.MatchedRank ?? "";
+
     private static TargetPosition? pendingTarget = null;
     private static DateTime stateStartTime = DateTime.MinValue;
     private static Vector3 lastNavDest = Vector3.Zero;
@@ -97,6 +103,12 @@ internal static unsafe class HuntController
         lastTargetPos = Vector3.Zero;
         targetLostSince = DateTime.MinValue;
         outOfCombatSince = DateTime.MinValue;
+
+        // 出生点辅助：车头坐标命中数据库出生点时提示
+        if (target.MatchedNameId != 0)
+        {
+            Notify.Info($"坐标命中 [{target.MatchedRank}] 级狩猎怪出生点，将前往出生点等待怪物…");
+        }
 
         // 判断是否需要传送
         if (target.TerritoryId != Svc.ClientState.TerritoryType)
@@ -458,6 +470,7 @@ internal static unsafe class HuntController
         }
 
         // 1. 扫描对象表寻找周围已知的狩猎怪
+        var hasSpawnMatch = pendingTarget!.MatchedNameId != 0;
         var huntMob = FindNearestHuntMob();
         if (huntMob != null)
         {
@@ -465,21 +478,33 @@ internal static unsafe class HuntController
             return;
         }
 
-        // 未找到：跟随一名队友（选择最近队友）直到选中狩猎怪
-        if (!notifiedNoHunt)
+        if (hasSpawnMatch)
         {
-            notifiedNoHunt = true;
-            Notify.Info("未发现狩猎怪，跟随队友直到选中…");
-        }
-
-        // 跟随最近队友（简化：向最近队友移动）
-        var nearestAlly = FindNearestAlly();
-        if (nearestAlly != null)
-        {
-            float dist = Vector3.Distance(Player.Position, nearestAlly.Position);
-            if (dist > 5f && S.VnavmeshIPC.GetIsReady() && EzThrottler.Throttle("WYAllyFollow", 500))
+            // 命中出生点：原地等待怪物刷新，持续扫描选中（不跟随队友，避免离开出生点）
+            if (!notifiedNoHunt)
             {
-                S.VnavmeshIPC.TryPathfindAndMoveTo(nearestAlly.Position, false);
+                notifiedNoHunt = true;
+                Notify.Info($"已在 [{pendingTarget.MatchedRank}] 级狩猎怪出生点附近等待，自动扫描怪物中…");
+            }
+        }
+        else
+        {
+            // 未找到：跟随一名队友（选择最近队友）直到选中狩猎怪
+            if (!notifiedNoHunt)
+            {
+                notifiedNoHunt = true;
+                Notify.Info("未发现狩猎怪，跟随队友直到选中…");
+            }
+
+            // 跟随最近队友（简化：向最近队友移动）
+            var nearestAlly = FindNearestAlly();
+            if (nearestAlly != null)
+            {
+                float dist = Vector3.Distance(Player.Position, nearestAlly.Position);
+                if (dist > 5f && S.VnavmeshIPC.GetIsReady() && EzThrottler.Throttle("WYAllyFollow", 500))
+                {
+                    S.VnavmeshIPC.TryPathfindAndMoveTo(nearestAlly.Position, false);
+                }
             }
         }
 
@@ -502,7 +527,9 @@ internal static unsafe class HuntController
         }
 
         // 超时放弃（Debug 模式输出附近战斗怪诊断，便于定位为何扫描不到）
-        if ((DateTime.Now - stateStartTime).TotalSeconds > 30)
+        // 命中出生点时等待时间大幅延长（5 分钟）：怪物可能尚未刷新
+        var timeoutSec = hasSpawnMatch ? 300 : 30;
+        if ((DateTime.Now - stateStartTime).TotalSeconds > timeoutSec)
         {
             if (P.Config.Debug)
             {
@@ -512,7 +539,7 @@ internal static unsafe class HuntController
                         PluginLog.Debug($"[AutoHunt] 超时诊断: 附近战斗怪 {npc.Name.TextValue} (NameId={npc.NameId}, IsHunt(含B)={HuntMobDatabase.IsHuntMob(npc.NameId, true)})");
                 }
             }
-            Notify.Error("30秒内未找到狩猎怪，放弃当前目标。");
+            Notify.Error($"{timeoutSec}秒内未找到狩猎怪，放弃当前目标。");
             Reset();
         }
     }
