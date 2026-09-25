@@ -22,7 +22,7 @@
     "DownloadLinkInstall": "https://fastly.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.3.0.3.zip",
     "DownloadLinkUpdate": "https://fastly.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.3.0.3.zip",
     "DownloadLinkTesting": "https://fastly.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.3.0.3.zip",
-    "LastUpdate": 1790321908,
+    "LastUpdate": 1790322259,
     "Changelog": "v2.3.0.3：悬浮窗不再被 ESC 关闭。"
   }
 ]
