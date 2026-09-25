@@ -288,18 +288,17 @@ public class MainWindow : ConfigWindow
             ImGui.TextColored(pc != null ? ColGreen : ColGray, pc != null ? "●" : "○");
             ImGui.SameLine();
             ImGui.TextUnformatted(c.Name);
-            var rightEdge = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
+            var avail = ImGui.GetContentRegionAvail().X;
             var cancelW = ImGui.CalcTextSize("取消").X + ImGui.GetStyle().FramePadding.X * 2;
             var info = WorldName(c.WorldId) + (pc != null ? " · 在附近" : " · 未在附近");
             var infoW = ImGui.CalcTextSize(info).X;
-            var nameEnd = ImGui.GetCursorPosX();
-            // 世界服信息右对齐放在「取消」左侧；空间不足时省略（悬停行内任意位置可见完整名）
-            if (nameEnd + 16 + infoW < rightEdge - cancelW - 10)
+            // 世界服信息右对齐放在「取消」左侧；空间不足时省略（全部光标相对，适配缩进/内边距）
+            if (infoW + 16 + cancelW <= avail)
             {
-                ImGui.SameLine(rightEdge - cancelW - 10 - infoW);
+                ImGui.SameLine(0, Math.Max(8, avail - infoW - cancelW - 10));
                 ImGui.TextColored(ColGray, info);
             }
-            ImGui.SameLine(rightEdge - cancelW);
+            ImGui.SameLine(0, Math.Max(8, ImGui.GetContentRegionAvail().X - cancelW));
             if (ImGui.SmallButton("取消"))
             {
                 Conductor.Remove(c.Name);
@@ -760,10 +759,6 @@ public class MainWindow : ConfigWindow
         return gw;
     }
 
-    /// <summary>内容区右对齐 X 坐标（预留 reserve 像素）。</summary>
-    private static float GetContentRight(float reserve = 0f) =>
-        ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - reserve;
-
     // ===== 绘制辅助：自适应文本 =====
 
     /// <summary>中文文本按可用宽度手动换行（ImGui 默认只在空格处断行，中文长句会溢出）。</summary>
@@ -797,7 +792,7 @@ public class MainWindow : ConfigWindow
         var avail = ImGui.GetContentRegionAvail().X;
         if (tw <= avail - 10)
         {
-            ImGui.SameLine(GetContentRight(tw));
+            ImGui.SameLine(0, Math.Max(8, avail - tw));
             ImGui.TextColored(ColGray, text);
         }
         else
@@ -816,17 +811,22 @@ public class MainWindow : ConfigWindow
 
     private void ToggleRow(string label, string? sub, string id, ref bool value, string? tooltip = null)
     {
-        var switchW = ImGui.GetFrameHeight() * 0.72f * 1.8f + 16f;
-        var labelEnd = ImGui.GetCursorPosX() + ImGui.CalcTextSize(label).X;
+        // 在行首取基准：窗口过窄时开关换行右对齐，否则同行贴右（全部光标相对，适配缩进/内边距）
+        var x0 = ImGui.GetCursorPosX();
+        var avail = ImGui.GetContentRegionAvail().X;
+        var labelW = ImGui.CalcTextSize(label).X;
+        var switchW = ImGui.GetFrameHeight() * 0.72f * 1.8f;
         ImGui.TextUnformatted(label);
-        var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - switchW;
-        if (right < labelEnd + 12)
+
+        if (labelW + 16 + switchW <= avail)
+        {
+            ImGui.SameLine(0, Math.Max(8, avail - labelW - switchW - 8));
+        }
+        else
         {
             // 窗口太窄：开关放到下一行右侧
-            ImGui.NewLine();
-            right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - switchW;
+            ImGui.SetCursorPosX(x0 + avail - switchW);
         }
-        ImGui.SameLine(right);
         var v = DrawSwitch(id, value);
         if (v != value)
         {
