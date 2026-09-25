@@ -20,12 +20,14 @@ public class MainWindow : ConfigWindow
 
     public MainWindow() : base("AutoHunt 设置")
     {
+        // 固定尺寸窗口（参照 AutoTriadC 的实现方式）：不响应拖拽缩放，标签内容在子区域内滚动
+        Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar;
+        Size = new Vector2(640f, 680f);
+        SizeCondition = ImGuiCond.Always;
     }
 
     public override void PreDraw()
     {
-        // 允许自由缩放，但设置最小宽度防止内容挤死；内容全部按可用宽度自适应
-        ImGui.SetNextWindowSizeConstraints(new Vector2(420, 260), new Vector2(4096, 2160));
     }
 
     public override void Draw()
@@ -35,35 +37,40 @@ public class MainWindow : ConfigWindow
         DrawOperationStrip();
         ImGui.Spacing();
 
-        if (ImGui.BeginTabBar("AutoHuntTabs"))
+        // 标签区包进子区域：窗口固定尺寸，内容超出时在子区域内滚动
+        if (ImGui.BeginChild("##tabarea", ImGui.GetContentRegionAvail(), false, ImGuiWindowFlags.None))
         {
-            if (ImGui.BeginTabItem("状态"))
+            if (ImGui.BeginTabBar("AutoHuntTabs"))
             {
-                DrawStatusTab();
-                ImGui.EndTabItem();
+                if (ImGui.BeginTabItem("状态"))
+                {
+                    DrawStatusTab();
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("狩猎"))
+                {
+                    DrawHuntTab();
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("招募"))
+                {
+                    DrawRecruitTab();
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("跨区"))
+                {
+                    DrawCrossRegionTab();
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("高级"))
+                {
+                    DrawAdvancedTab();
+                    ImGui.EndTabItem();
+                }
+                ImGui.EndTabBar();
             }
-            if (ImGui.BeginTabItem("狩猎"))
-            {
-                DrawHuntTab();
-                ImGui.EndTabItem();
-            }
-            if (ImGui.BeginTabItem("招募"))
-            {
-                DrawRecruitTab();
-                ImGui.EndTabItem();
-            }
-            if (ImGui.BeginTabItem("跨区"))
-            {
-                DrawCrossRegionTab();
-                ImGui.EndTabItem();
-            }
-            if (ImGui.BeginTabItem("高级"))
-            {
-                DrawAdvancedTab();
-                ImGui.EndTabItem();
-            }
-            ImGui.EndTabBar();
         }
+        ImGui.EndChild();
     }
 
     // ===== 顶部：指标卡 =====
@@ -426,7 +433,6 @@ public class MainWindow : ConfigWindow
         ImGui.TextUnformatted("跨区流程");
         ImGui.Indent(12);
         WrapText($"状态: {CrossRegionController.CurrentState}", CrossRegionController.Active ? ColPurple : ColGray);
-        ImGui.Unindent(12);
         ToggleRow("启用跨区功能",
             "取消车头 → 解散小队 → 传送到跨区前城市 → 立即跨区到下一车次服务器 → 传送到跨区后水晶 →（可选）获取车头 →（可选）自动开启招募",
             "##tCross", ref P.Config.CrossRegionEnable);
@@ -747,7 +753,7 @@ public class MainWindow : ConfigWindow
     private float EndCard(float minWidth = 0)
     {
         ImGui.Dummy(new Vector2(0, 3f));
-        ImGui.Unindent(ImGui.GetStyle().IndentSpacing);
+        ImGui.Unindent(10); // 必须与 BeginCard 的 Indent(10) 严格匹配，否则每张卡片累计偏移
         ImGui.EndGroup();
         var min = ImGui.GetItemRectMin();
         var max = ImGui.GetItemRectMax();
