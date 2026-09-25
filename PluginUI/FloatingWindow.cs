@@ -22,6 +22,8 @@ public class FloatingWindow : Window
         | ImGuiWindowFlags.NoScrollbar)
     {
         IsOpen = true;
+        // ESC 不应关闭悬浮窗（点击获得焦点后按 ESC 会触发 Windowing 的关闭热键）
+        RespectCloseHotkey = false;
     }
 
     public override void PreDraw()
