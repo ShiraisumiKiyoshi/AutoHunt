@@ -133,14 +133,20 @@ public class MainWindow : ConfigWindow
 
     public override void Draw()
     {
+        // 全部子区域用绝对定位，杜绝 ItemSpacing 累积把底栏推出窗外（曾导致外层滚动条+底栏按钮被裁）
+        var W = ImGui.GetWindowSize().X;
+        var H = ImGui.GetWindowSize().Y;
+        var sp = ImGui.GetStyle().ItemSpacing.Y;
+
         // 标题栏
-        ImGui.BeginChild("##titlebar", new Vector2(-1, TitleH), false, ImGuiWindowFlags.NoScrollbar);
+        ImGui.SetCursorPos(Vector2.Zero);
+        ImGui.BeginChild("##titlebar", new Vector2(W, TitleH), false, ImGuiWindowFlags.NoScrollbar);
         DrawTitleBar();
         ImGui.EndChild();
 
         // 主体：左侧导航 + 内容
-        var bodyH = ImGui.GetContentRegionAvail().Y - BottomH;
-        ImGui.BeginChild("##body", new Vector2(-1, bodyH), false, ImGuiWindowFlags.NoScrollbar);
+        ImGui.SetCursorPos(new Vector2(0, TitleH + sp));
+        ImGui.BeginChild("##body", new Vector2(W, H - TitleH - BottomH - sp * 2), false, ImGuiWindowFlags.NoScrollbar);
         {
             ImGui.BeginChild("##side", new Vector2(SideW, -1), false, ImGuiWindowFlags.NoScrollbar);
             DrawSideNav();
@@ -154,7 +160,8 @@ public class MainWindow : ConfigWindow
         ImGui.EndChild();
 
         // 底部状态栏
-        ImGui.BeginChild("##bottombar", new Vector2(-1, BottomH), false, ImGuiWindowFlags.NoScrollbar);
+        ImGui.SetCursorPos(new Vector2(0, H - BottomH));
+        ImGui.BeginChild("##bottombar", new Vector2(W, BottomH), false, ImGuiWindowFlags.NoScrollbar);
         DrawBottomBar();
         ImGui.EndChild();
     }
@@ -360,18 +367,19 @@ public class MainWindow : ConfigWindow
         }
         RowEnd();
 
-        // 指标卡
+        // 指标卡（四张横排，等分宽度）
         var avail = ImGui.GetContentRegionAvail().X;
         var mw = Math.Max(96f, (avail - 30f) / 4f);
         var online = Conductor.FindNearest() != null;
-        MetricCard("车头", online, $"{P.Config.Conductors.Count} 人", online ? ColGreen : ColGray);
+        MetricCard(mw, "车头", online, $"{P.Config.Conductors.Count} 人", online ? ColGreen : ColGray);
         ImGui.SameLine(0, 10);
-        MetricCard("本区击杀", null,
+        MetricCard(mw, "本区击杀", null,
             $"{InstanceController.KillCount} / {P.Config.KillsPerInstance}", InstanceController.ZoneCleared ? ColAmber : ColGreen);
         ImGui.SameLine(0, 10);
-        MetricCard("副本区", null, $"{InstanceController.CachedCurrentInstance} / {InstanceController.CachedInstanceCount}", ColTxt);
+        MetricCard(mw, "副本区", null, $"{InstanceController.CachedCurrentInstance} / {InstanceController.CachedInstanceCount}", ColTxt);
         ImGui.SameLine(0, 10);
-        MetricCard("狩猎怪库", null, $"{HuntMobDatabase.RankMap.Count} 只", ColTxt);
+        MetricCard(mw, "狩猎怪库", null, $"{HuntMobDatabase.RankMap.Count} 只", ColTxt);
+        ImGui.Dummy(new Vector2(0, 8));
 
         // 主按钮 + 幽灵按钮
         ImGui.Dummy(new Vector2(0, 6));
@@ -453,9 +461,11 @@ public class MainWindow : ConfigWindow
         }
     }
 
-    private void MetricCard(string label, bool? online, string value, uint valueCol)
+    private void MetricCard(float width, string label, bool? online, string value, uint valueCol)
     {
-        RowBegin(58f);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, ColCard);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
+        ImGui.BeginChild("##mc" + rowCounter++, new Vector2(width, 58f), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
         ImGui.SetCursorPosY(9);
         ImGui.TextColored(ColSub, label);
         ImGui.SetCursorPosY(28);
@@ -465,7 +475,9 @@ public class MainWindow : ConfigWindow
             ImGui.SameLine(0, 6);
         }
         ImGui.TextColored(valueCol, value);
-        RowEnd();
+        ImGui.EndChild();
+        ImGui.PopStyleVar();
+        ImGui.PopStyleColor();
     }
 
     /// <summary>胶囊主按钮：左半切换总开关，右侧 ▼ 弹出快捷操作菜单。</summary>
@@ -615,7 +627,8 @@ public class MainWindow : ConfigWindow
         RowBegin();
         ToggleRow("启用一键创建队员招募", "启用后，主页「创建怪物狩猎招募」按钮可用", "##tPf", ref P.Config.PfinderEnable);
         ToggleRow("启用创建招募时设置青魔占位", "自动设置青魔职业占位并限定平均品级 531", "##tBlu", ref P.Config.BluPlaceholder);
-        ImGui.TextColored(ColSub, "队员招募自由留言");
+        ImGui.Dummy(new Vector2(0, 4));
+        BoldLabel("队员招募自由留言");
         ImGui.SetNextItemWidth(-RightPad);
         var comment = P.Config.PfinderString ?? "";
         if (ImGui.InputText("##pfindercomment", ref comment, 150))
@@ -630,6 +643,17 @@ public class MainWindow : ConfigWindow
         Row(IcMega, ColGreen, "[怪物狩猎] 队员招募",
             string.IsNullOrWhiteSpace(P.Config.PfinderString) ? "（未设置留言）" : P.Config.PfinderString,
             tag: "预览", tagCol: ColAccent, border: C(61, 220, 132, 90));
+
+        ImGui.Dummy(new Vector2(0, 2));
+        if (GhostButton("##gbCreatePF", IcMega, "一键创建招募"))
+        {
+            if (P.Config.PfinderEnable)
+                Tasks.TaskCreateHuntPF.Enqueue();
+            else
+                Notify.Error("请先开启「启用一键创建队员招募」开关。");
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("按上方文案与留言配置，立即在招募面板创建一条队员招募");
     }
 
     // ===== 跨区页 =====
@@ -666,7 +690,8 @@ public class MainWindow : ConfigWindow
             "跨区流程完成后，按「招募」页配置自动创建队员招募",
             "##tCrossPF", ref P.Config.CrossRegionAutoPF);
 
-        ImGui.TextColored(ColSub, "跨区前传送到城市");
+        ImGui.Dummy(new Vector2(0, 4));
+        BoldLabel("跨区前传送到城市");
         ImGui.SetNextItemWidth(Math.Min(260, ImGui.GetContentRegionAvail().X - RightPad));
         var cities = CrossRegionController.PreCities;
         var preIdx = Math.Clamp(P.Config.CrossRegionPreCity, 0, cities.Length - 1);
@@ -685,16 +710,18 @@ public class MainWindow : ConfigWindow
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("只有利姆萨·罗敏萨下层甲板、格里达尼亚新街、乌尔达哈现世回廊这三个地方可以进行跨区操作，默认格里达尼亚新街");
 
-        ImGui.TextColored(ColSub, "跨区后传送到水晶");
+        ImGui.Dummy(new Vector2(0, 6));
+        BoldLabel("跨区后传送到水晶");
         DrawAetheryteCombo("##crosspost", P.Config.CrossRegionPostAetheryteId,
             "跨区完成后的传送目的地；选择「不传送」则跨界后不进行传送操作",
             v => { P.Config.CrossRegionPostAetheryteId = v; EzConfig.Save(); });
 
-        ImGui.TextColored(ColSub, "结束地图");
-        DrawAetheryteCombo("##crossend", P.Config.CrossRegionEndAetheryteId,
+        ImGui.Dummy(new Vector2(0, 6));
+        BoldLabel("结束地图");
+        DrawEndMapCombo("##crossend", P.Config.CrossRegionEndAetheryteId,
             P.Config.CrossRegionAutoCancelConductor
-                ? "自动取消车头的触发地图；当前地图与该水晶所在地图相同且击杀满时触发"
-                : "先开启「自动取消车头」后此地图才会生效；选项与「跨区后传送到水晶」相同",
+                ? "自动取消车头的触发地图；当前地图与所选地图相同且击杀满时触发"
+                : "先开启「自动取消车头」后此地图才会生效；按地图名称选择",
             v => { P.Config.CrossRegionEndAetheryteId = v; EzConfig.Save(); });
         if (P.Config.CrossRegionAutoCancelConductor && P.Config.CrossRegionEndAetheryteId == 0)
             ImGui.TextColored(ColAmber, "未选择结束地图，自动取消车头不生效");
@@ -804,6 +831,66 @@ public class MainWindow : ConfigWindow
             {
                 if (ImGui.Selectable(a.Name, a.Id == current))
                     onChange(a.Id);
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered() && tooltip != null) ImGui.SetTooltip(tooltip);
+    }
+
+    private static List<(uint Id, string MapName)> cachedEndMaps;
+
+    /// <summary>结束地图候选：按地图名去重的水晶（同一地图取首个水晶 RowId 作为存储值）。</summary>
+    private static List<(uint Id, string MapName)> GetEndMapsCached()
+    {
+        if (cachedEndMaps == null)
+        {
+            cachedEndMaps = new List<(uint, string)>();
+            try
+            {
+                var seen = new HashSet<string>();
+                foreach (var a in Svc.Data.GetExcelSheet<Aetheryte>())
+                {
+                    if (!a.IsAetheryte) continue;
+                    var mapName = MapManager.GetMapForTerritory(a.Territory.RowId)?.PlaceName.ValueNullable?.Name.ToString();
+                    if (string.IsNullOrEmpty(mapName) || !seen.Add(mapName)) continue;
+                    cachedEndMaps.Add((a.RowId, mapName));
+                }
+                cachedEndMaps.Sort((x, y) => string.CompareOrdinal(x.Item2, y.Item2));
+            }
+            catch (Exception e)
+            {
+                PluginLog.Warning($"[AutoHunt] 读取结束地图列表失败: {e.Message}");
+            }
+        }
+        return cachedEndMaps;
+    }
+
+    /// <summary>结束地图下拉框：按地图名称选择（内部仍存水晶 RowId，判定逻辑不变）。</summary>
+    private static void DrawEndMapCombo(string id, uint current, string tooltip, Action<uint> onChange)
+    {
+        ImGui.SetNextItemWidth(Math.Min(260, ImGui.GetContentRegionAvail().X - RightPad));
+        var maps = GetEndMapsCached();
+        string curMap = null;
+        if (current != 0)
+        {
+            try
+            {
+                var a = Svc.Data.GetExcelSheet<Aetheryte>().GetRow(current);
+                curMap = MapManager.GetMapForTerritory(a.Territory.RowId)?.PlaceName.ValueNullable?.Name.ToString();
+            }
+            catch { /* 未知水晶 */ }
+        }
+        var name = current == 0
+            ? "不传送"
+            : maps.FirstOrDefault(m => m.MapName == curMap).MapName ?? $"未知地图 ({current})";
+        if (ImGui.BeginCombo(id, name))
+        {
+            if (ImGui.Selectable("不传送", current == 0))
+                onChange(0);
+            foreach (var m in maps)
+            {
+                if (ImGui.Selectable(m.MapName, m.MapName == curMap))
+                    onChange(m.Id);
             }
             ImGui.EndCombo();
         }
@@ -948,23 +1035,45 @@ public class MainWindow : ConfigWindow
         }
     }
 
-    // ===== 绘制辅助：行式卡片（子区域 + 圆角背景，内部可放任意控件） =====
+    // ===== 绘制辅助：行式卡片 =====
 
     private uint? rowBorder;
+    private bool rowAuto;
+    private Vector2 rowStart;
+    private float rowWidth;
 
-    /// <summary>开始一张行式卡片；height &gt; 0 时固定高度，否则随内容自适应。</summary>
+    /// <summary>
+    /// 开始一张行式卡片。height &gt; 0：固定高度（子窗口实现）；
+    /// height == 0：高度随内容自适应（Group + 双通道绘制；不能用子窗口的 y=0——那会填满父容器剩余高度）。
+    /// </summary>
     private void RowBegin(float height = 0, uint? border = null)
     {
         rowBorder = border;
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, ColCard);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
-        ImGui.BeginChild("##row" + rowCounter++, height > 0 ? new Vector2(-1, height) : new Vector2(-1, 0), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
-        if (border.HasValue)
+        if (height > 0)
         {
+            rowAuto = false;
+            ImGui.PushStyleColor(ImGuiCol.ChildBg, ColCard);
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
+            ImGui.BeginChild("##row" + rowCounter++, new Vector2(-1, height), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
+            if (border.HasValue)
+            {
+                var dl = ImGui.GetWindowDrawList();
+                var p = ImGui.GetWindowPos();
+                var s = ImGui.GetWindowSize();
+                dl.AddRect(p + new Vector2(1, 1), p + s - new Vector2(1, 1), border.Value, 14f);
+            }
+        }
+        else
+        {
+            rowAuto = true;
+            rowStart = ImGui.GetCursorScreenPos();
+            rowWidth = ImGui.GetContentRegionAvail().X;
             var dl = ImGui.GetWindowDrawList();
-            var p = ImGui.GetWindowPos();
-            var s = ImGui.GetWindowSize();
-            dl.AddRect(p + new Vector2(1, 1), p + s - new Vector2(1, 1), border.Value, 14f);
+            dl.ChannelsSplit(2);
+            dl.ChannelsSetCurrent(0); // 内容层
+            ImGui.BeginGroup();
+            ImGui.Indent(14f);
+            ImGui.Dummy(new Vector2(0, 8)); // 顶部内边距
         }
     }
 
@@ -973,11 +1082,30 @@ public class MainWindow : ConfigWindow
     /// <summary>结束当前行式卡片。</summary>
     private void RowEnd()
     {
-        ImGui.EndChild();
-        ImGui.PopStyleVar();   // WindowPadding
-        ImGui.PopStyleColor(); // ChildBg
+        if (rowAuto)
+        {
+            var dl = ImGui.GetWindowDrawList();
+            ImGui.Dummy(new Vector2(0, 8)); // 底部内边距
+            ImGui.Unindent(14f);
+            ImGui.EndGroup();
+            var min = rowStart;
+            var max = new Vector2(rowStart.X + Math.Max(rowWidth, ImGui.GetItemRectMax().X - rowStart.X), ImGui.GetItemRectMax().Y);
+            dl.ChannelsSetCurrent(1); // 背景层（画在内容之下）
+            dl.AddRectFilled(min, max, ColCard, 14f);
+            if (rowBorder.HasValue)
+                dl.AddRect(min + new Vector2(1, 1), max - new Vector2(1, 1), rowBorder.Value, 14f);
+            dl.ChannelsMerge();
+            ImGui.Dummy(new Vector2(0, 8));
+        }
+        else
+        {
+            ImGui.EndChild();
+            ImGui.PopStyleVar();   // WindowPadding
+            ImGui.PopStyleColor(); // ChildBg
+            ImGui.Dummy(new Vector2(0, 8));
+        }
         rowBorder = null;
-        ImGui.Dummy(new Vector2(0, 8));
+        rowAuto = false;
     }
 
     /// <summary>简单信息行：图标 + 标题/副标题 + 可选右侧文字 / 标签 / 按钮 / 描边。</summary>
@@ -992,6 +1120,9 @@ public class MainWindow : ConfigWindow
         var p = ImGui.GetWindowPos();
         var s = ImGui.GetWindowSize();
 
+        // 裁剪到卡片圆角矩形内，防止长文本溢出边框（招募预览等）
+        dl.PushClipRect(p + new Vector2(2, 2), p + s - new Vector2(2, 2), true);
+
         // 图标盒
         var icS = 34f;
         var icPos = new Vector2(p.X + 14, p.Y + (s.Y - icS) / 2);
@@ -999,12 +1130,14 @@ public class MainWindow : ConfigWindow
         dl.AddRect(icPos, icPos + new Vector2(icS, icS), ColLine, 10f);
         DrawIconCentered(glyph, icPos, new(icS, icS), glyphCol, 0.92f);
 
-        // 标题 + 副标题
+        // 标题 + 副标题（限制宽度，避免压到右侧元素）
         var fs = ImGui.GetFontSize();
         var tx = p.X + 14 + icS + 13;
-        dl.AddText(ImGui.GetFont(), fs, new(tx, p.Y + s.Y / 2 - fs - 1), 0xFFFFFFFFu, title);
+        var rightMost = RightExtent(p.X, s.X, btn, tag, rightText) - 8f;
+        var textClip = Math.Max(rightMost, tx + 60f);
+        dl.AddText(ImGui.GetFont(), fs, new(tx, p.Y + s.Y / 2 - fs - 1), 0xFFFFFFFFu, TruncateTo(title, textClip - tx));
         if (!string.IsNullOrEmpty(sub))
-            dl.AddText(ImGui.GetFont(), fs * 0.88f, new(tx, p.Y + s.Y / 2 + 1), ColSub, sub);
+            dl.AddText(ImGui.GetFont(), fs * 0.88f, new(tx, p.Y + s.Y / 2 + 1), ColSub, TruncateTo(sub, textClip - tx));
 
         // 右侧区域：从右往左依次为 按钮 / 标签 / 右侧文字
         var x = p.X + s.X - 14f;
@@ -1044,9 +1177,35 @@ public class MainWindow : ConfigWindow
             dl.AddText(font, fs * 0.92f, new(x - tw, cy - fs * 0.46f), rightCol != 0 ? rightCol : ColTxt, rightText);
         }
 
+        dl.PopClipRect();
+
         // 占位推进布局（文本均由 drawlist 绘制，不参与排版）
         ImGui.Dummy(new Vector2(0, 0));
         RowEnd();
+    }
+
+    /// <summary>行卡右侧区域（按钮/标签/右侧文字）合计占用的像素宽度。</summary>
+    private static float RightExtent(float cardLeft, float cardW, string btn, string tag, string rightText)
+    {
+        var x = cardLeft + cardW - 14f;
+        if (!string.IsNullOrEmpty(btn)) x -= ImGui.CalcTextSize(btn).X + 24f + 10f;
+        if (!string.IsNullOrEmpty(tag)) x -= ImGui.CalcTextSize(tag).X + 18f + 10f;
+        if (!string.IsNullOrEmpty(rightText)) x -= ImGui.CalcTextSize(rightText).X + 10f;
+        return x;
+    }
+
+    /// <summary>按像素宽度截断文本并追加省略号。</summary>
+    private static string TruncateTo(string text, float maxWidth)
+    {
+        if (string.IsNullOrEmpty(text) || ImGui.CalcTextSize(text).X <= maxWidth) return text;
+        var ell = "…";
+        var w = ImGui.CalcTextSize(ell).X;
+        for (var i = text.Length - 1; i > 0; i--)
+        {
+            if (ImGui.CalcTextSize(text[..i]).X + w <= maxWidth)
+                return text[..i] + ell;
+        }
+        return ell;
     }
 
     // ===== 绘制辅助：图标 =====
@@ -1168,7 +1327,20 @@ public class MainWindow : ConfigWindow
         if (tooltip != null && ImGui.IsItemHovered())
             ImGui.SetTooltip(tooltip);
         if (sub != null)
+        {
             ImGui.TextColored(ColSub, sub);
+            ImGui.Dummy(new Vector2(0, 4)); // 开关行之间留出间隔，避免相互挨着
+        }
+    }
+
+    /// <summary>伪加粗文本（同位置双重绘制；内置字体无粗体）。</summary>
+    private void BoldLabel(string text)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var p = ImGui.GetCursorScreenPos();
+        dl.AddText(p, ColTxt, text);
+        dl.AddText(p + new Vector2(0.7f, 0), ColTxt, text);
+        ImGui.Dummy(new Vector2(ImGui.CalcTextSize(text).X, ImGui.GetTextLineHeight()));
     }
 
     private static bool DrawSwitch(string id, bool value)
