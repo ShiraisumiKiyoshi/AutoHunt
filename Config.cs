@@ -3,7 +3,7 @@ namespace AutoHunt;
 public class Config : IEzConfig
 {
     /// <summary>插件总开关</summary>
-    public bool Enabled = true;
+    public bool Enabled = false; // 默认关闭：启动游戏后需手动开启总开关
 
     // ===== 车头（多车头） =====
 

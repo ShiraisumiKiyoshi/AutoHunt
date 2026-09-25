@@ -250,17 +250,12 @@ public class MainWindow : ConfigWindow
         var innerH = BottomH - 20f;
         var y = p.Y + 10f;
 
-        // 左侧：图标按钮（打开高级）
+        // 状态胶囊（左下角不再放设置按钮，高级设置从标题栏齿轮或左侧导航进入）
         var s = 34f;
-        ImGui.SetCursorScreenPos(new(p.X + pad, y + (innerH - s) / 2));
-        if (IconButton("##bbGear", IcGear, new(s, s))) page = Page.Advanced;
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("打开「高级」设置");
-
-        // 状态胶囊
         var (kind, _, detail) = OperationTracker.CurrentParts;
         var stCol = KindCol(kind);
         var subText = string.IsNullOrEmpty(detail) ? (P.Config.Enabled ? "等待车头坐标" : "插件已关闭") : detail;
-        var capsuleX = p.X + pad + s + 12f;
+        var capsuleX = p.X + pad;
         var playW = 44f;
         var capsuleW = w - capsuleX - pad - playW - 6 - s - 14;
 
@@ -728,9 +723,9 @@ public class MainWindow : ConfigWindow
         RowEnd();
 
         // 狩猎时间表
-        Sect("狩猎时间表 — 到达城市后立即跨往下一车次");
+        Sect("狩猎时间表 — 最近车次前 30 分钟内自动跨区，其余时间等待");
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("取消车头后，到达跨区前城市立即跨区到时间表中「本地时间的下一个」时间点对应的服务器；服务器列表为当前角色所在大区内的全部服务器");
+            ImGui.SetTooltip("取消车头后：若本地时间处于某车次前 30 分钟内，立即跨往该车次对应的服务器；否则等待最近车次进入前 30 分钟窗口再跨区（例：本地 18:31，19:00 车次满足条件）。服务器列表为当前角色所在大区内的全部服务器");
         var schedule = P.Config.CrossRegionSchedule;
         var nextMinutes = GetNextScheduleMinutes();
         for (var i = 0; i < schedule.Count; i++)
@@ -1055,13 +1050,7 @@ public class MainWindow : ConfigWindow
             ImGui.PushStyleColor(ImGuiCol.ChildBg, ColCard);
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
             ImGui.BeginChild("##row" + rowCounter++, new Vector2(-1, height), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
-            if (border.HasValue)
-            {
-                var dl = ImGui.GetWindowDrawList();
-                var p = ImGui.GetWindowPos();
-                var s = ImGui.GetWindowSize();
-                dl.AddRect(p + new Vector2(1, 1), p + s - new Vector2(1, 1), border.Value, 14f);
-            }
+            // 描边延后到 RowEnd（内容之后）绘制，避免被卡片背景/内容盖住
         }
         else
         {
@@ -1079,7 +1068,7 @@ public class MainWindow : ConfigWindow
 
     private static int rowCounter;
 
-    /// <summary>结束当前行式卡片。</summary>
+    /// <summary>结束当前行式卡片。描边在所有内容之后补画，保证始终可见。</summary>
     private void RowEnd()
     {
         if (rowAuto)
@@ -1092,13 +1081,20 @@ public class MainWindow : ConfigWindow
             var max = new Vector2(rowStart.X + Math.Max(rowWidth, ImGui.GetItemRectMax().X - rowStart.X), ImGui.GetItemRectMax().Y);
             dl.ChannelsSetCurrent(1); // 背景层（画在内容之下）
             dl.AddRectFilled(min, max, ColCard, 14f);
-            if (rowBorder.HasValue)
-                dl.AddRect(min + new Vector2(1, 1), max - new Vector2(1, 1), rowBorder.Value, 14f);
             dl.ChannelsMerge();
+            if (rowBorder.HasValue) // 描边最后画：位于内容之上，不会被卡片盖住
+                dl.AddRect(min + new Vector2(0.5f, 0.5f), max - new Vector2(0.5f, 0.5f), rowBorder.Value, 14f, 0, 1.5f);
             ImGui.Dummy(new Vector2(0, 8));
         }
         else
         {
+            if (rowBorder.HasValue) // 描边最后画：位于内容之上，不会被卡片盖住
+            {
+                var dl = ImGui.GetWindowDrawList();
+                var p = ImGui.GetWindowPos();
+                var s = ImGui.GetWindowSize();
+                dl.AddRect(p + new Vector2(0.5f, 0.5f), p + s - new Vector2(0.5f, 0.5f), rowBorder.Value, 14f, 0, 1.5f);
+            }
             ImGui.EndChild();
             ImGui.PopStyleVar();   // WindowPadding
             ImGui.PopStyleColor(); // ChildBg

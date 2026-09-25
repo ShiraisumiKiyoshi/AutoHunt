@@ -7,14 +7,16 @@ namespace AutoHunt;
 
 /// <summary>
 /// 跨区（数据中心传送）控制器。
-/// 流程：取消车头 → 解散小队（如在小队中）→ 传送到「跨区前传送到城市」→ 立即跨区到狩猎时间表中「本地时间下一个时间点」对应的服务器（无需等待到点）
+/// 流程：取消车头 →（不在最近车次前 30 分钟内时等待）→ 解散小队（如在小队中）→ 传送到「跨区前传送到城市」
+/// → 跨区到狩猎时间表中「本地时间下一个时间点」对应的服务器（无需等待到点）
 /// → 传送到「跨区后传送到水晶」（可选）
 /// → 按招募标签配置自动开启队员招募（可选，需同时启用「启用一键创建队员招募」）。
+/// 车次判定：本地时间处于某车次时间前 0~30 分钟内才立即跨区；否则等待到最近车次的前 30 分钟窗口再开始。
 /// 自带状态机，不占用 TaskManager（留给招募任务链等任务使用）。
 /// </summary>
 internal static class CrossRegionController
 {
-    private enum Phase { Inactive, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, FetchConductors, CreatePF }
+    private enum Phase { Inactive, WaitSchedule, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, FetchConductors, CreatePF }
 
     private static Phase phase = Phase.Inactive;
     private static DateTime stepStart = DateTime.MinValue;
@@ -34,6 +36,7 @@ internal static class CrossRegionController
     internal static string CurrentState => phase switch
     {
         Phase.Inactive => "未运行",
+        Phase.WaitSchedule => WaitStateText,
         Phase.DisbandParty => "解散小队",
         Phase.ToPreCity => $"前往跨区城市（{PreCityName}）",
         Phase.DcTravel => $"跨区传送中（→ {targetWorld}）",
@@ -44,7 +47,7 @@ internal static class CrossRegionController
     };
 
     /// <summary>跨区阶段进度链（操作条显示）：阶段名列表 + 当前阶段下标，-1 = 未运行。</summary>
-    internal static readonly string[] PhaseStepNames = { "解散小队", "传送城市", "跨区", "传送水晶", "获取车头", "开招募" };
+    internal static readonly string[] PhaseStepNames = { "等待车次", "解散小队", "传送城市", "跨区", "传送水晶", "获取车头", "开招募" };
 
     internal static (string[] Names, int Current) PhaseSteps
     {
@@ -52,12 +55,13 @@ internal static class CrossRegionController
         {
             var cur = phase switch
             {
-                Phase.DisbandParty => 0,
-                Phase.ToPreCity => 1,
-                Phase.DcTravel => 2,
-                Phase.ToPostCrystal => 3,
-                Phase.FetchConductors => 4,
-                Phase.CreatePF => 5,
+                Phase.WaitSchedule => 0,
+                Phase.DisbandParty => 1,
+                Phase.ToPreCity => 2,
+                Phase.DcTravel => 3,
+                Phase.ToPostCrystal => 4,
+                Phase.FetchConductors => 5,
+                Phase.CreatePF => 6,
                 _ => -1,
             };
             return (PhaseStepNames, cur);
@@ -74,6 +78,21 @@ internal static class CrossRegionController
 
     private static (string Name, uint AetheryteId, uint Territory) PreCity => PreCities[Math.Clamp(P.Config.CrossRegionPreCity, 0, PreCities.Length - 1)];
     private static string PreCityName => PreCity.Name;
+
+    /// <summary>车次窗口：本地时间处于车次时间前多少分钟内才立即跨区，否则等待到窗口。</summary>
+    internal const int ScheduleWindowMinutes = 30;
+
+    /// <summary>等待车次阶段的展示文案。</summary>
+    private static string WaitStateText
+    {
+        get
+        {
+            var pick = PickTargetEntry();
+            if (pick == null) return "等待车次（无有效条目）";
+            var waitMin = Math.Max(0, (int)Math.Ceiling(pick.Value.delta - (double)ScheduleWindowMinutes));
+            return $"等待车次 {pick.Value.time / 60:00}:{pick.Value.time % 60:00}（{waitMin} 分钟后跨区）";
+        }
+    }
 
     /// <summary>
     /// 启动跨区流程（取消车头后调用）。前置条件不满足时提示并放弃。
@@ -97,7 +116,8 @@ internal static class CrossRegionController
             Notify.Error("跨区：狩猎时间表为空，请先在「跨区」标签中添加车次，已取消跨区流程。");
             return;
         }
-        if (GetNextEntry() == null)
+        var pick = PickTargetEntry();
+        if (pick == null)
         {
             Notify.Error("跨区：狩猎时间表中没有有效的时间条目（需为 HHMM 且时间合法），已取消跨区流程。");
             return;
@@ -116,6 +136,18 @@ internal static class CrossRegionController
         HuntController.Reset();
 
         Reset();
+        if (pick.Value.delta > ScheduleWindowMinutes)
+        {
+            // 不在任何车次的前 30 分钟内：进入等待阶段，直到最近车次的前 30 分钟窗口再开始跨区
+            phase = Phase.WaitSchedule;
+            stepStart = DateTime.Now;
+            hadParty = false;
+            var t = pick.Value.time;
+            var waitMin = pick.Value.delta - ScheduleWindowMinutes;
+            Notify.Info($"跨区：当前不在最近车次 {t / 60:00}:{t % 60:00} 的前 {ScheduleWindowMinutes} 分钟内，等待约 {waitMin} 分钟后自动开始跨区。");
+            PluginLog.Information($"[AutoHunt] 跨区：进入等待车次阶段（最近车次 {t}，距开始跨区 {waitMin} 分钟）");
+            return;
+        }
         phase = Phase.DisbandParty;
         stepStart = DateTime.Now;
         wasBetweenAreas = false;
@@ -177,6 +209,7 @@ internal static class CrossRegionController
         {
             switch (phase)
             {
+                case Phase.WaitSchedule: UpdateWaitSchedule(); break;
                 case Phase.DisbandParty: UpdateDisbandParty(); break;
                 case Phase.ToPreCity: UpdateToPreCity(); break;
                     case Phase.DcTravel: UpdateDcTravel(); break;
@@ -193,7 +226,38 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 0：解散小队 =====
+    // ===== 阶段 0：等待车次（车次前 30 分钟窗口外挂起） =====
+
+    private static void UpdateWaitSchedule()
+    {
+        var pick = PickTargetEntry();
+        if (pick == null)
+        {
+            Notify.Error("跨区：狩猎时间表已无有效的时间条目，等待已取消。");
+            Reset();
+            return;
+        }
+
+        // 进入最近车次的前 30 分钟窗口 → 开始正常跨区流程
+        if (pick.Value.delta <= ScheduleWindowMinutes)
+        {
+            var t = pick.Value.time;
+            Notify.Info($"跨区：已进入车次 {t / 60:00}:{t % 60:00} 的前 {ScheduleWindowMinutes} 分钟窗口，开始跨区流程。");
+            phase = Phase.DisbandParty;
+            stepStart = DateTime.Now;
+            hadParty = false;
+            return;
+        }
+
+        // 每 5 分钟提醒一次剩余等待时间
+        if (EzThrottler.Throttle("WYCrossWaitInfo", 300000))
+        {
+            var t = pick.Value.time;
+            Notify.Info($"跨区：等待最近车次 {t / 60:00}:{t % 60:00}，约 {pick.Value.delta - ScheduleWindowMinutes} 分钟后开始跨区…");
+        }
+    }
+
+    // ===== 阶段 1：解散小队 =====
 
     private static void UpdateDisbandParty()
     {
@@ -493,6 +557,35 @@ internal static class CrossRegionController
     }
 
     // ===== 时间表解析 =====
+
+    /// <summary>
+    /// 挑选「最近 upcoming」车次：把每个条目换算为距当前的分钟数（已过则视为明天，+1440），
+    /// 取最小者。返回 (条目解析分钟数, 条目, 距当前分钟数 delta)；无有效条目返回 null。
+    /// </summary>
+    private static (int time, CrossRegionScheduleEntry entry, int delta)? PickTargetEntry()
+    {
+        var now = DateTime.Now;
+        var nowMin = now.Hour * 60 + now.Minute;
+        int? bestDelta = null;
+        int bestTime = 0;
+        CrossRegionScheduleEntry bestEntry = null;
+
+        foreach (var e in P.Config.CrossRegionSchedule)
+        {
+            var t = ParseHHMM(e?.Time);
+            if (t == null) continue;
+            var delta = t.Value - nowMin;
+            if (delta <= 0) delta += 1440;
+            if (bestDelta == null || delta < bestDelta.Value)
+            {
+                bestDelta = delta;
+                bestTime = t.Value;
+                bestEntry = e;
+            }
+        }
+
+        return bestDelta == null ? null : (bestTime, bestEntry, bestDelta.Value);
+    }
 
     /// <summary>
     /// 找到狩猎时间表中「本地时间的下一个」条目：
