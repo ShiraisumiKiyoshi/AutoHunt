@@ -250,42 +250,33 @@ public class MainWindow : ConfigWindow
         var innerH = BottomH - 20f;
         var y = p.Y + 10f;
 
-        // 状态胶囊（左下角不再放设置按钮，高级设置从标题栏齿轮或左侧导航进入）
+        // 右侧：方形停止键 + 圆形播放键（先算右缘，左侧文字据此截断）
         var s = 34f;
+        var playW = 44f;
+        var stopX = p.X + w - pad - s;
+        var playX = stopX - 6f - playW;
+
+        // 左侧：图标 + AutoHunt + 当前操作（单行，无胶囊背景/无标签）
         var (kind, _, detail) = OperationTracker.CurrentParts;
         var stCol = KindCol(kind);
         var subText = string.IsNullOrEmpty(detail) ? (P.Config.Enabled ? "等待车头坐标" : "插件已关闭") : detail;
-        var capsuleX = p.X + pad;
-        var playW = 44f;
-        var capsuleW = w - capsuleX - pad - playW - 6 - s - 14;
 
-        dl.AddRectFilled(new(capsuleX, y), new(capsuleX + capsuleW, y + innerH), ColCard, 13f);
-        dl.AddRect(new(capsuleX, y), new(capsuleX + capsuleW, y + innerH), ColLine, 13f);
-
-        // 胶囊内：状态图标
-        var icS = 32f;
-        var icPos = new Vector2(capsuleX + 9, y + (innerH - icS) / 2);
-        dl.AddRectFilled(icPos, icPos + new Vector2(icS, icS), C(49, 67, 90, 255), 9f);
-        DrawIconCentered(IcTarget, icPos, new(icS, icS), stCol, 0.95f);
-
-        // 标题 + 当前操作
         var fs = ImGui.GetFontSize();
         var font = ImGui.GetFont();
-        var tx = capsuleX + 9 + icS + 12f;
-        dl.AddText(font, fs, new(tx, y + innerH / 2 - fs - 2), 0xFFFFFFFFu, "AutoHunt");
-        dl.AddText(font, fs * 0.92f, new(tx, y + innerH / 2 + 1), ColSub, subText);
+        var midY = y + innerH / 2;
 
-        // 右侧 tag：跨区开启/关闭
-        var tagText = P.Config.CrossRegionEnable ? "跨区开启" : "跨区关闭";
-        var tagCol = P.Config.CrossRegionEnable ? ColPurple : ColGray;
-        var tagw = ImGui.CalcTextSize(tagText).X + 18;
-        var tagx = capsuleX + capsuleW - tagw - 12;
-        dl.AddRectFilled(new(tagx, y + (innerH - 20) / 2), new(tagx + tagw, y + (innerH + 20) / 2),
-            Rgba(tagCol, 0.14f), 9f);
-        dl.AddText(font, fs * 0.85f, new(tagx + 9, y + (innerH - fs * 0.85f) / 2), tagCol, tagText);
+        var icS = 26f;
+        var icPos = new Vector2(p.X + pad, midY - icS / 2);
+        DrawIconCentered(IcTarget, icPos, new(icS, icS), stCol, 0.95f);
+
+        var tx = icPos.X + icS + 12f;
+        var autoW = ImGui.CalcTextSize("AutoHunt").X;
+        dl.AddText(font, fs, new(tx, midY - fs / 2), 0xFFFFFFFFu, "AutoHunt");
+        var tx2 = tx + autoW + 14f;
+        var opText = TruncateTo(subText, Math.Max(80f, playX - 14f - tx2));
+        dl.AddText(font, fs * 0.95f, new(tx2, midY - fs * 0.95f / 2), ColSub, opText);
 
         // 圆形播放键：切换总开关
-        var playX = capsuleX + capsuleW + 12f;
         var playPos = new Vector2(playX, y + (innerH - playW) / 2);
         ImGui.SetCursorScreenPos(playPos);
         if (ImGui.InvisibleButton("##bbPlay", new(playW, playW)))
@@ -303,7 +294,7 @@ public class MainWindow : ConfigWindow
             ImGui.SetTooltip(P.Config.Enabled ? "停止所有自动行为（关闭总开关）" : "启动（开启总开关）");
 
         // 方形停止键：总开关关闭
-        var stopPos = new Vector2(playX + playW + 6, y + (innerH - s) / 2);
+        var stopPos = new Vector2(stopX, y + (innerH - s) / 2);
         ImGui.SetCursorScreenPos(stopPos);
         if (ImGui.InvisibleButton("##bbStop", new(s, s)) && P.Config.Enabled)
         {
@@ -1036,6 +1027,7 @@ public class MainWindow : ConfigWindow
     private bool rowAuto;
     private Vector2 rowStart;
     private float rowWidth;
+    private Vector2 rowRectMin, rowRectMax; // 子窗口卡片的背景/描边统一用这个矩形（自绘，保证重合）
 
     /// <summary>
     /// 开始一张行式卡片。height &gt; 0：固定高度（子窗口实现）；
@@ -1047,10 +1039,14 @@ public class MainWindow : ConfigWindow
         if (height > 0)
         {
             rowAuto = false;
-            ImGui.PushStyleColor(ImGuiCol.ChildBg, ColCard);
+            // 记录卡片矩形：背景与描边都由我们自绘（ChildBg 置空），
+            // 避免两种绘制路径几何不一致导致"绿框不包围卡片"
+            rowRectMin = ImGui.GetCursorScreenPos();
+            rowRectMax = new Vector2(rowRectMin.X + ImGui.GetContentRegionAvail().X, rowRectMin.Y + height);
+            ImGui.PushStyleColor(ImGuiCol.ChildBg, 0u);
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
             ImGui.BeginChild("##row" + rowCounter++, new Vector2(-1, height), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
-            // 描边延后到 RowEnd（内容之后）绘制，避免被卡片背景/内容盖住
+            ImGui.GetWindowDrawList().AddRectFilled(rowRectMin, rowRectMax, ColCard, 14f); // 第一条命令 = 最底层背景
         }
         else
         {
@@ -1088,12 +1084,10 @@ public class MainWindow : ConfigWindow
         }
         else
         {
-            if (rowBorder.HasValue) // 描边最后画：位于内容之上，不会被卡片盖住
+            if (rowBorder.HasValue) // 描边最后画：位于内容之上，与自绘背景同一矩形，保证包围卡片
             {
                 var dl = ImGui.GetWindowDrawList();
-                var p = ImGui.GetWindowPos();
-                var s = ImGui.GetWindowSize();
-                dl.AddRect(p + new Vector2(0.5f, 0.5f), p + s - new Vector2(0.5f, 0.5f), rowBorder.Value, 14f, 0, 1.5f);
+                dl.AddRect(rowRectMin + new Vector2(0.5f, 0.5f), rowRectMax - new Vector2(0.5f, 0.5f), rowBorder.Value, 14f, 0, 1.5f);
             }
             ImGui.EndChild();
             ImGui.PopStyleVar();   // WindowPadding
