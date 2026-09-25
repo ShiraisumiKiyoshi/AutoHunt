@@ -39,6 +39,7 @@ public class MainWindow : ConfigWindow
     private const string IcGear = "\uf013";
     private const string IcX = "\uf00d";
     private const string IcPlay = "\uf04b";
+    private const string IcPause = "\uf04c";
     private const string IcStop = "\uf04d";
     private const string IcPlus = "\uf067";
     private const string IcThumb = "\uf164";
@@ -153,9 +154,12 @@ public class MainWindow : ConfigWindow
             ImGui.EndChild();
 
             ImGui.SameLine(0, 0);
+            // 页面内容统一 18px 左、12px 顶内边距（此前 SetCursorPos 只偏移首个元素，导致顶部卡片与下方卡片左侧不对齐）
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(18, 12));
             ImGui.BeginChild("##main", ImGui.GetContentRegionAvail(), false, ImGuiWindowFlags.None);
             DrawPage();
             ImGui.EndChild();
+            ImGui.PopStyleVar();
         }
         ImGui.EndChild();
 
@@ -259,7 +263,8 @@ public class MainWindow : ConfigWindow
         // 左侧：图标 + AutoHunt + 当前操作（单行，无胶囊背景/无标签）
         var (kind, _, detail) = OperationTracker.CurrentParts;
         var stCol = KindCol(kind);
-        var subText = string.IsNullOrEmpty(detail) ? (P.Config.Enabled ? "等待车头坐标" : "插件已关闭") : detail;
+        var subText = AutoHunt.Paused ? "已暂停（点击播放键继续）"
+            : string.IsNullOrEmpty(detail) ? (P.Config.Enabled ? "等待车头坐标" : "插件已关闭") : detail;
 
         var fs = ImGui.GetFontSize();
         var font = ImGui.GetFont();
@@ -276,22 +281,33 @@ public class MainWindow : ConfigWindow
         var opText = TruncateTo(subText, Math.Max(80f, playX - 14f - tx2));
         dl.AddText(font, fs * 0.95f, new(tx2, midY - fs * 0.95f / 2), ColSub, opText);
 
-        // 圆形播放键：切换总开关
+        // 圆形播放键：三态——未启用=开始（绿）；运行中=暂停（琥珀，点击冻结队列）；已暂停=继续（绿，恢复现场）
         var playPos = new Vector2(playX, y + (innerH - playW) / 2);
         ImGui.SetCursorScreenPos(playPos);
         if (ImGui.InvisibleButton("##bbPlay", new(playW, playW)))
         {
-            P.Config.Enabled = !P.Config.Enabled;
+            if (!P.Config.Enabled)
+            {
+                P.Config.Enabled = true;
+                AutoHunt.Paused = false;
+            }
+            else
+            {
+                AutoHunt.Paused = !AutoHunt.Paused;
+            }
             EzConfig.Save();
         }
+        var pausedNow = P.Config.Enabled && AutoHunt.Paused; // 点击后的最新状态
         var playHovered = ImGui.IsItemHovered();
         if (playHovered)
             dl.AddCircleFilled(playPos + new Vector2(playW / 2, playW / 2), playW / 2, C(255, 255, 255, 20));
         dl.AddCircle(playPos + new Vector2(playW / 2, playW / 2), playW / 2, C(255, 255, 255, 115), 0, 1.5f);
-        DrawIconCentered(P.Config.Enabled ? IcStop : IcPlay, playPos, new(playW, playW),
-            P.Config.Enabled ? ColAmber : ColGreen, 0.85f);
+        DrawIconCentered(!P.Config.Enabled || pausedNow ? IcPlay : IcPause, playPos, new(playW, playW),
+            !P.Config.Enabled || pausedNow ? ColGreen : ColAmber, 0.85f);
         if (playHovered)
-            ImGui.SetTooltip(P.Config.Enabled ? "停止所有自动行为（关闭总开关）" : "启动（开启总开关）");
+            ImGui.SetTooltip(!P.Config.Enabled ? "启动（开启总开关）"
+                : pausedNow ? "继续自动操作（从暂停点恢复）"
+                : "暂停自动操作（队列冻结，可继续）");
 
         // 方形停止键：总开关关闭
         var stopPos = new Vector2(stopX, y + (innerH - s) / 2);
@@ -299,6 +315,7 @@ public class MainWindow : ConfigWindow
         if (ImGui.InvisibleButton("##bbStop", new(s, s)) && P.Config.Enabled)
         {
             P.Config.Enabled = false;
+            AutoHunt.Paused = false;
             EzConfig.Save();
         }
         if (ImGui.IsItemHovered())
@@ -313,8 +330,7 @@ public class MainWindow : ConfigWindow
 
     private void DrawPage()
     {
-        rowCounter = 0; // 每帧复位，保证行卡子窗口 ID 稳定
-        ImGui.SetCursorPos(new Vector2(18, 12));
+        rowCounter = 0; // 每帧复位，保证行卡 ID 稳定（页面内边距由 ##main 的 WindowPadding 统一提供）
         switch (page)
         {
             case Page.Home: DrawHomePage(); break;

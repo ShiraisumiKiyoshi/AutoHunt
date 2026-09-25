@@ -61,6 +61,12 @@ public unsafe class AutoHunt : IDalamudPlugin
     private bool masterSwitchArmed = true;
 
     /// <summary>
+    /// 暂停标志（运行时状态，不入配置）：true 时冻结任务队列（TaskManager.StepMode）并跳过全部控制器推进，
+    /// 保留现场；再次点击播放键恢复。与总开关不同——暂停不会清空队列/状态机。
+    /// </summary>
+    internal static bool Paused = false;
+
+    /// <summary>
     /// 总开关闸门：关闭时立即停止所有自动行为并清空操作队列（中止任务链、复位全部状态机、
     /// 停止寻路、取消招募监听），保证重新开启后处于干净的空闲状态、绝不继续之前被中断的流程。
     /// </summary>
@@ -74,6 +80,7 @@ public unsafe class AutoHunt : IDalamudPlugin
         if (!masterSwitchArmed) return;
         masterSwitchArmed = false;
 
+        Paused = false; // 总开关关闭 = 彻底复位，暂停态一并清除
         TaskManager.Abort();
         CrossRegionController.Reset();
         HuntController.Reset();
@@ -103,6 +110,15 @@ public unsafe class AutoHunt : IDalamudPlugin
             // 总开关闸门：关闭时停止一切并清空队列（提示一次），主循环不再推进任何控制器
             MasterSwitchGate();
             if (!Config.Enabled) return;
+
+            // 暂停闸门：冻结任务队列（TaskManager 停止步进，现场保留）并跳过全部控制器推进；
+            // 不清空队列/状态机，恢复时从暂停点继续
+            if (Paused)
+            {
+                if (!TaskManager.StepMode) TaskManager.StepMode = true;
+                return;
+            }
+            if (TaskManager.StepMode) TaskManager.StepMode = false;
 
             if (!depChecked && DateTime.Now >= depCheckTime)
             {
