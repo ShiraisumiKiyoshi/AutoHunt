@@ -6,17 +6,17 @@ using ECommons.SimpleGui;
 namespace AutoHunt.PluginUI;
 
 /// <summary>
-/// 悬浮窗：显示当前操作简述，可拖动，点击打开设置窗口，位置持久化。
+/// 悬浮窗：显示当前操作简述，可拖动（ImGui 原生窗口拖动），点击（未拖动）打开设置窗口，位置持久化。
 /// </summary>
 public class FloatingWindow : Window
 {
+    // 点击/拖动区分：记录按下时的窗口位置，释放时位移超过阈值视为拖动
     private bool mouseDown;
-    private bool dragged;
-    private Vector2 dragStartMouse;
-    private Vector2 dragStartWinPos;
+    private Vector2 pressWinPos;
 
     public FloatingWindow() : base(
         "AutoHunt 悬浮窗###AutoHuntFloat",
+        // 不加 NoMove：靠 ImGui 原生「拖动空白处移动窗口」实现拖动，比自绘可靠
         ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize
         | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoFocusOnAppearing
         | ImGuiWindowFlags.NoScrollbar)
@@ -27,8 +27,9 @@ public class FloatingWindow : Window
     public override void PreDraw()
     {
         ImGui.SetNextWindowBgAlpha(0.86f);
+        // 仅首次出现时应用保存的位置；Always 会导致每帧拉回、窗口拖不动
         if (P.Config.FloatingWindowX >= 0)
-            ImGui.SetNextWindowPos(new Vector2(P.Config.FloatingWindowX, P.Config.FloatingWindowY), ImGuiCond.Always);
+            ImGui.SetNextWindowPos(new Vector2(P.Config.FloatingWindowX, P.Config.FloatingWindowY), ImGuiCond.FirstUseEver);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 10f);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(12, 7));
     }
@@ -40,46 +41,43 @@ public class FloatingWindow : Window
 
     public override void Draw()
     {
-        var (kind, text) = OperationTracker.Current;
+        var (kind, tag, detail) = OperationTracker.CurrentParts;
         var col = OperationTrackerUi.KindColor(kind);
         ImGui.TextColored(col, "●");
         ImGui.SameLine();
-        ImGui.TextUnformatted(text);
-
-        // 点击打开设置 / 拖动移动位置
-        if (ImGui.IsWindowHovered())
+        ImGui.TextColored(col, tag);
+        if (!string.IsNullOrEmpty(detail))
         {
-            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            ImGui.SameLine();
+            ImGui.TextUnformatted("— " + detail);
+        }
+
+        // 拖动由 ImGui 原生处理（空白区域拖动窗口）；这里只区分“点击”
+        if (ImGui.IsWindowHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            mouseDown = true;
+            pressWinPos = ImGui.GetWindowPos();
+        }
+        if (mouseDown && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            mouseDown = false;
+            var moved = Vector2.Distance(ImGui.GetWindowPos(), pressWinPos);
+            if (moved < 5f)
             {
-                mouseDown = true;
-                dragged = false;
-                dragStartMouse = ImGui.GetIO().MousePos;
-                dragStartWinPos = ImGui.GetWindowPos();
+                // 视为点击：打开设置窗口
+                EzConfigGui.Toggle();
             }
-            if (mouseDown && ImGui.IsMouseDragging(ImGuiMouseButton.Left, 4f))
+            else
             {
-                dragged = true;
-                ImGui.SetWindowPos(dragStartWinPos + (ImGui.GetIO().MousePos - dragStartMouse));
-            }
-            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && mouseDown)
-            {
-                mouseDown = false;
-                if (dragged)
-                {
-                    var p = ImGui.GetWindowPos();
-                    P.Config.FloatingWindowX = p.X;
-                    P.Config.FloatingWindowY = p.Y;
-                    EzConfig.Save();
-                    dragged = false;
-                }
-                else
-                {
-                    EzConfigGui.Toggle();
-                }
+                // 拖动结束：持久化位置
+                var p = ImGui.GetWindowPos();
+                P.Config.FloatingWindowX = p.X;
+                P.Config.FloatingWindowY = p.Y;
+                EzConfig.Save();
             }
         }
-        if (ImGui.IsItemHovered() || ImGui.IsWindowHovered())
-            ImGui.SetTooltip("点击打开设置窗口\n拖动移动位置");
+        if (ImGui.IsWindowHovered())
+            ImGui.SetTooltip("拖动移动位置\n点击打开设置窗口");
     }
 }
 
@@ -97,14 +95,5 @@ internal static class OperationTrackerUi
         _ => new(0.58f, 0.61f, 0.67f, 1f),
     };
 
-    public static string KindTag(OperationTracker.Kind kind) => kind switch
-    {
-        OperationTracker.Kind.CrossRegion => "跨区",
-        OperationTracker.Kind.InstanceSwitch => "切区",
-        OperationTracker.Kind.FetchConductor => "获取车头",
-        OperationTracker.Kind.CreatePF => "招募",
-        OperationTracker.Kind.Hunt => "狩猎",
-        OperationTracker.Kind.Move => "移动",
-        _ => "空闲",
-    };
+    public static string KindTag(OperationTracker.Kind kind) => OperationTracker.Tag(kind);
 }

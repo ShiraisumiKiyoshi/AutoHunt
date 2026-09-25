@@ -63,6 +63,30 @@ internal static class OperationTracker
         }
     }
 
+    /// <summary>结构化当前操作：类别 + 标签 + 明细。文本中 "标签 — 明细" 自动拆分，无分隔符时标签取类别默认名。</summary>
+    public static (Kind Kind, string Tag, string Detail) CurrentParts
+    {
+        get
+        {
+            var (k, text) = Current;
+            var i = text.IndexOf(" — ", StringComparison.Ordinal);
+            if (i > 0) return (k, text[..i].Trim(), text[(i + 3)..].Trim());
+            return (k, Tag(k), text);
+        }
+    }
+
+    /// <summary>类别默认标签。</summary>
+    public static string Tag(Kind kind) => kind switch
+    {
+        Kind.CrossRegion => "跨区",
+        Kind.InstanceSwitch => "切区",
+        Kind.FetchConductor => "获取车头",
+        Kind.CreatePF => "招募",
+        Kind.Hunt => "狩猎",
+        Kind.Move => "移动",
+        _ => "空闲",
+    };
+
     /// <summary>狩猎流程进行中返回描述文本，空闲返回 null。</summary>
     private static string? DescribeHunt()
     {

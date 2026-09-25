@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.3.0.0",
+    "AssemblyVersion": "2.3.0.1",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.3.0.0.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.3.0.0.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.3.0.0.zip",
-    "LastUpdate": 1790317793,
-    "Changelog": "v2.3.0.0：UI 全面改版——新增指标卡摘要栏、当前操作条（实时显示插件正在做什么）、卡片分组、switch 开关与悬浮窗（点击打开设置/可拖动）；新增多车头：任一车头发坐标都触发狩猎，可单独或一键取消；新增「自动获取车头」：自动读取队员招募-怪物狩猎中的全部招募人设为车头；跨区新增「跨区后自动获取车头」与「自动取消车头+结束地图」（结束地图击杀满自动取消全部车头并衔接跨区）；修复关闭插件总开关后跨区流程不停止的问题（关闭即停并清空全部操作队列）。"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.3.0.1.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.3.0.1.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/repo/AutoHunt-2.3.0.1.zip",
+    "LastUpdate": 1790318523,
+    "Changelog": "v2.3.0.1：修复 UI 自适应问题——文字/按钮/输入框/滑条随窗口宽度自适应，中文长句自动换行，窗口可缩放不再溢出；修复悬浮窗无法拖动（原生拖动，点击与拖动自动区分）；操作条不再重复显示操作类别。"
   }
 ]

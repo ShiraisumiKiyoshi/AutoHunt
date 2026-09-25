@@ -22,6 +22,12 @@ public class MainWindow : ConfigWindow
     {
     }
 
+    public override void PreDraw()
+    {
+        // 允许自由缩放，但设置最小宽度防止内容挤死；内容全部按可用宽度自适应
+        ImGui.SetNextWindowSizeConstraints(new Vector2(420, 260), new Vector2(4096, 2160));
+    }
+
     public override void Draw()
     {
         DrawMetricCards();
@@ -65,42 +71,42 @@ public class MainWindow : ConfigWindow
     private void DrawMetricCards()
     {
         var avail = ImGui.GetContentRegionAvail().X;
-        var w = (avail - 24f) / 4f;
+        var w = Math.Max(64f, (avail - 24f) / 4f);
 
         // 车头
-        BeginCard(w);
+        var gw = BeginCard(w);
         ImGui.TextDisabled("车头");
         var online = Conductor.FindNearest() != null;
         ImGui.TextColored(online ? ColGreen : ColGray, online ? "●" : "○");
         ImGui.SameLine();
         ImGui.Text($"{P.Config.Conductors.Count} 人");
-        EndCard();
-        ImGui.SameLine();
+        EndCard(w);
+        if (gw < w) ImGui.SameLine(0, w - gw + 8f); else ImGui.SameLine();
 
         // 狩猎状态
-        var (kind, text) = OperationTracker.Current;
-        BeginCard(w);
+        var (kind, _, text) = OperationTracker.CurrentParts;
+        gw = BeginCard(w);
         ImGui.TextDisabled("狩猎状态");
-        var huntText = kind == OperationTracker.Kind.Hunt || kind == OperationTracker.Kind.Move
-            ? Shorten(text["狩猎 — ".Length..])
+        var huntText = kind is OperationTracker.Kind.Hunt or OperationTracker.Kind.Move
+            ? Shorten(text)
             : "待机";
         ImGui.TextColored(kind == OperationTracker.Kind.Hunt ? ColCyan : ColGray, huntText);
-        EndCard();
-        ImGui.SameLine();
+        EndCard(w);
+        if (gw < w) ImGui.SameLine(0, w - gw + 8f); else ImGui.SameLine();
 
         // 本区击杀
-        BeginCard(w);
+        gw = BeginCard(w);
         ImGui.TextDisabled("本区击杀");
         ImGui.TextColored(InstanceController.ZoneCleared ? ColAmber : ColGreen,
             $"{InstanceController.KillCount} / {P.Config.KillsPerInstance}");
-        EndCard();
-        ImGui.SameLine();
+        EndCard(w);
+        if (gw < w) ImGui.SameLine(0, w - gw + 8f); else ImGui.SameLine();
 
         // 副本区
         BeginCard(w);
         ImGui.TextDisabled("副本区");
         ImGui.TextUnformatted($"{InstanceController.CachedCurrentInstance} / {InstanceController.CachedInstanceCount}");
-        EndCard();
+        EndCard(w);
     }
 
     private static string Shorten(string s)
@@ -114,13 +120,20 @@ public class MainWindow : ConfigWindow
     private void DrawMainButtons()
     {
         ImGui.Spacing();
+        var avail = ImGui.GetContentRegionAvail().X;
+        // 按钮宽度 = 文本 + 内边距；放不下就自动换行
+        float BtnW(string label) => ImGui.CalcTextSize(label).X + ImGui.GetStyle().FramePadding.X * 4;
+        var w1 = BtnW("自动获取车头");
+        var w2 = BtnW("创建怪物狩猎招募");
+        var w3 = BtnW("全部取消车头");
+
         if (ButtonColored("自动获取车头", new(0.16f, 0.25f, 0.43f, 1f)))
         {
             ConductorFetchService.Enqueue();
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("读取队员招募 → 全部 → 怪物狩猎中的全部招募人，设为车头（去重、替换现有列表、跳过自己）");
-        ImGui.SameLine();
+        if (w1 + 8 + w2 <= avail) ImGui.SameLine();
         if (ButtonColored("创建怪物狩猎招募", new(0.16f, 0.25f, 0.43f, 1f)))
         {
             if (P.Config.PfinderEnable)
@@ -128,7 +141,7 @@ public class MainWindow : ConfigWindow
             else
                 Notify.Error("一键创建招募按钮未启用，请在「招募」标签中开启。");
         }
-        ImGui.SameLine();
+        if (w1 + 8 + w2 + 8 + w3 <= avail) ImGui.SameLine();
         if (ButtonColored("全部取消车头", new(0.30f, 0.16f, 0.22f, 1f)))
         {
             Conductor.ClearAll();
@@ -151,22 +164,32 @@ public class MainWindow : ConfigWindow
 
     private void DrawOperationStrip()
     {
-        var (kind, text) = OperationTracker.Current;
+        var (kind, tag, detail) = OperationTracker.CurrentParts;
         var col = OperationTrackerUi.KindColor(kind);
         BeginCard();
         ImGui.TextColored(col, "●");
         ImGui.SameLine();
-        ImGui.TextColored(col, OperationTrackerUi.KindTag(kind));
-        ImGui.SameLine();
-        ImGui.TextUnformatted("—");
-        ImGui.SameLine();
-        ImGui.TextUnformatted(text);
+        ImGui.TextColored(col, tag);
+        if (!string.IsNullOrEmpty(detail))
+        {
+            ImGui.SameLine();
+            ImGui.TextUnformatted("—");
+            ImGui.SameLine();
+            WrapText(detail, 0xFFFFFFFF);
+        }
 
-        // 跨区阶段进度链
+        // 跨区阶段进度链（放不下时整体换行）
         var (names, cur) = CrossRegionController.PhaseSteps;
         if (cur >= 0)
         {
-            ImGui.SameLine();
+            float chainW = 0;
+            for (var i = 0; i < names.Length; i++)
+                chainW += ImGui.CalcTextSize($"{(i < cur ? "✓" : i == cur ? "▶" : "○")}{names[i]}").X + ImGui.GetStyle().ItemSpacing.X;
+            if (ImGui.GetCursorPosX() + chainW > ImGui.GetContentRegionMax().X)
+                ImGui.NewLine();
+            else
+                ImGui.SameLine();
+
             ImGui.TextColored(ColGray, "｜");
             ImGui.SameLine();
             for (var i = 0; i < names.Length; i++)
@@ -186,21 +209,19 @@ public class MainWindow : ConfigWindow
     {
         BeginCard();
         ImGui.TextUnformatted("当前操作");
-        ImGui.SameLine(GetContentRight(120));
-        ImGui.TextColored(ColGray, $"车头焦点: {(Svc.Targets.FocusTarget != null && Conductor.IsConductor(Svc.Targets.FocusTarget.Name.TextValue) ? "正常" : "已断开")}");
+        RightInfo($"车头焦点: {(Svc.Targets.FocusTarget != null && Conductor.IsConductor(Svc.Targets.FocusTarget.Name.TextValue) ? "正常" : "已断开")}");
         ImGui.Indent(12);
-        ImGui.TextUnformatted("· 车头: " + (Conductor.IsValid
+        WrapText("· 车头: " + (Conductor.IsValid
             ? string.Join("、", P.Config.Conductors.Select(c => c.Name)) + (IsSelfConductor() ? "（含自己）" : "")
-            : "未设置"));
-        var (kind, opText) = OperationTracker.Current;
-        ImGui.TextColored(OperationTrackerUi.KindColor(kind), $"· 当前操作: {OperationTrackerUi.KindTag(kind)} — {opText}");
+            : "未设置"), 0xFFFFFFFF);
+        var (kind, _, opText) = OperationTracker.CurrentParts;
+        WrapText($"· 当前操作: {OperationTracker.Tag(kind)} — {opText}", ImGui.ColorConvertFloat4ToU32(OperationTrackerUi.KindColor(kind)));
         ImGui.Unindent(12);
         EndCard();
 
         BeginCard();
         ImGui.TextUnformatted("狩猎");
-        ImGui.SameLine(GetContentRight(120));
-        ImGui.TextColored(ColGray, $"狩猎怪库: {HuntMobDatabase.RankMap.Count} 只已加载");
+        RightInfo($"狩猎怪库: {HuntMobDatabase.RankMap.Count} 只已加载");
         ImGui.Indent(12);
         var rank = HuntController.CurrentTargetRank;
         ImGui.TextUnformatted($"· 目标怪物: {(string.IsNullOrEmpty(HuntController.CurrentTargetName) ? "无" : string.IsNullOrEmpty(rank) ? HuntController.CurrentTargetName : $"[{rank}] {HuntController.CurrentTargetName}")}");
@@ -223,9 +244,8 @@ public class MainWindow : ConfigWindow
 
         BeginCard();
         ImGui.TextUnformatted("跨区流程");
-        ImGui.SameLine(GetContentRight(80));
-        ImGui.TextColored(CrossRegionController.Active ? ColPurple : ColGray, CrossRegionController.CurrentState);
         ImGui.Indent(12);
+        WrapText(CrossRegionController.CurrentState, CrossRegionController.Active ? ColPurple : ColGray);
         ImGui.TextUnformatted($"· 结束地图自动取消车头: {(P.Config.CrossRegionAutoCancelConductor ? (P.Config.CrossRegionEndAetheryteId == 0 ? "未选择结束地图（不生效）" : "已开启") : "未开启")}");
         ImGui.Unindent(12);
         EndCard();
@@ -256,8 +276,7 @@ public class MainWindow : ConfigWindow
         // 车头卡片
         BeginCard();
         ImGui.TextUnformatted($"车头（{P.Config.Conductors.Count}）");
-        ImGui.SameLine(GetContentRight(10));
-        ImGui.TextColored(ColGray, "任一车头发送坐标都会触发狩猎");
+        RightInfo("任一车头发送坐标都会触发狩猎");
         ImGui.Indent(12);
 
         var list = P.Config.Conductors;
@@ -269,9 +288,18 @@ public class MainWindow : ConfigWindow
             ImGui.TextColored(pc != null ? ColGreen : ColGray, pc != null ? "●" : "○");
             ImGui.SameLine();
             ImGui.TextUnformatted(c.Name);
-            ImGui.SameLine(220);
-            ImGui.TextColored(ColGray, WorldName(c.WorldId) + (pc != null ? " · 在附近" : " · 未在附近"));
-            ImGui.SameLine(GetContentRight(4));
+            var rightEdge = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
+            var cancelW = ImGui.CalcTextSize("取消").X + ImGui.GetStyle().FramePadding.X * 2;
+            var info = WorldName(c.WorldId) + (pc != null ? " · 在附近" : " · 未在附近");
+            var infoW = ImGui.CalcTextSize(info).X;
+            var nameEnd = ImGui.GetCursorPosX();
+            // 世界服信息右对齐放在「取消」左侧；空间不足时省略（悬停行内任意位置可见完整名）
+            if (nameEnd + 16 + infoW < rightEdge - cancelW - 10)
+            {
+                ImGui.SameLine(rightEdge - cancelW - 10 - infoW);
+                ImGui.TextColored(ColGray, info);
+            }
+            ImGui.SameLine(rightEdge - cancelW);
             if (ImGui.SmallButton("取消"))
             {
                 Conductor.Remove(c.Name);
@@ -280,12 +308,12 @@ public class MainWindow : ConfigWindow
             }
             ImGui.PopID();
         }
-        if (list.Count == 0) ImGui.TextColored(ColGray, "  未设置车头：右键聊天玩家名「设为车头」，或点击「自动获取车头」");
+        if (list.Count == 0) WrapText("  未设置车头：右键聊天玩家名「设为车头」，或点击「自动获取车头」", ColGray);
 
         ImGui.Spacing();
         if (ButtonColored("自动获取车头", new(0.16f, 0.25f, 0.43f, 1f))) ConductorFetchService.Enqueue();
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(160);
+        ImGui.SetNextItemWidth(Math.Min(160, ImGui.GetContentRegionAvail().X - 70));
         var name = manualConductorName ?? "";
         if (ImGui.InputTextWithHint("##manualconductor", "手动添加车头名", ref name, 32))
             manualConductorName = name;
@@ -312,7 +340,7 @@ public class MainWindow : ConfigWindow
         if (P.Config.UseSpawnPoints)
         {
             ImGui.Indent(12);
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(Math.Min(220, ImGui.GetContentRegionAvail().X));
             if (ImGui.SliderFloat("出生点匹配半径 (米)", ref P.Config.SpawnMatchRadius, 30f, 300f)) EzConfig.Save();
             ImGui.Unindent(12);
         }
@@ -325,18 +353,18 @@ public class MainWindow : ConfigWindow
             BeginCard();
             ImGui.TextUnformatted("狩猎流程参数");
             ImGui.Indent(12);
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(Math.Min(220, ImGui.GetContentRegionAvail().X));
             if (ImGui.SliderFloat("传送距离阈值 (米)", ref P.Config.TeleportDistanceThreshold, 10f, 300f)) EzConfig.Save();
             if (ImGui.IsItemHovered()) ImGui.SetTooltip("自己与目标距离减去最近水晶到目标距离大于此值时传送");
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(Math.Min(220, ImGui.GetContentRegionAvail().X));
             if (ImGui.SliderFloat("悬停高度偏移 (米)", ref P.Config.ZOffset, 0f, 100f)) EzConfig.Save();
             if (ImGui.IsItemHovered()) ImGui.SetTooltip("接近车头坐标后，悬停点相对目标坐标地面高度的上移量；不可飞地图自动忽略");
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(Math.Min(220, ImGui.GetContentRegionAvail().X));
             if (ImGui.SliderFloat("下坐骑血量 (%)", ref P.Config.DismountHpPercent, 10f, 100f)) EzConfig.Save();
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(Math.Min(220, ImGui.GetContentRegionAvail().X));
             if (ImGui.SliderInt("每击杀几只怪切换副本区", ref P.Config.KillsPerInstance, 1, 10)) EzConfig.Save();
             ToggleRow("上坐骑寻路", null, "##tMount", ref P.Config.UseMount);
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(Math.Min(220, ImGui.GetContentRegionAvail().X));
             if (ImGui.InputText("指定坐骑名称（留空随机）", ref P.Config.MountName, 64)) EzConfig.Save();
             ImGui.Unindent(12);
             EndCard();
@@ -397,15 +425,15 @@ public class MainWindow : ConfigWindow
     {
         BeginCard();
         ImGui.TextUnformatted("跨区流程");
-        ImGui.SameLine(GetContentRight(160));
-        ImGui.TextColored(CrossRegionController.Active ? ColPurple : ColGray, $"状态: {CrossRegionController.CurrentState}");
         ImGui.Indent(12);
+        WrapText($"状态: {CrossRegionController.CurrentState}", CrossRegionController.Active ? ColPurple : ColGray);
+        ImGui.Unindent(12);
         ToggleRow("启用跨区功能",
             "取消车头 → 解散小队 → 传送到跨区前城市 → 立即跨区到下一车次服务器 → 传送到跨区后水晶 →（可选）获取车头 →（可选）自动开启招募",
             "##tCross", ref P.Config.CrossRegionEnable);
 
         ImGui.TextUnformatted("跨区前传送到城市");
-        ImGui.SetNextItemWidth(250);
+        ImGui.SetNextItemWidth(Math.Min(250, ImGui.GetContentRegionAvail().X));
         var cities = CrossRegionController.PreCities;
         var preIdx = Math.Clamp(P.Config.CrossRegionPreCity, 0, cities.Length - 1);
         if (ImGui.BeginCombo("##crosspre", cities[preIdx].Name))
@@ -539,7 +567,7 @@ public class MainWindow : ConfigWindow
     /// <summary>水晶下拉框（含「不传送」选项，值为 0）。</summary>
     private static void DrawAetheryteCombo(string id, uint current, string tooltip, Action<uint> onChange)
     {
-        ImGui.SetNextItemWidth(250);
+        ImGui.SetNextItemWidth(Math.Min(250, ImGui.GetContentRegionAvail().X));
         var aetherytes = GetAetherytesCached();
         var name = current == 0
             ? "不传送"
@@ -591,7 +619,7 @@ public class MainWindow : ConfigWindow
         ToggleRow("使用 /vnav flyflag 飞向旗标（推荐）",
             "开启后：插旗→上坐骑→执行飞旗命令；关闭则用 IPC 直接寻路到坐标+Z偏移",
             "##tFlyFlag", ref P.Config.UseFlyFlag);
-        ImGui.SetNextItemWidth(300);
+        ImGui.SetNextItemWidth(Math.Min(300, ImGui.GetContentRegionAvail().X));
         if (ImGui.InputText("飞旗命令", ref P.Config.FlyFlagCommand, 64)) EzConfig.Save();
         ImGui.Unindent(12);
         EndCard();
@@ -599,9 +627,9 @@ public class MainWindow : ConfigWindow
         BeginCard();
         ImGui.TextUnformatted("输出命令");
         ImGui.Indent(12);
-        ImGui.SetNextItemWidth(300);
+        ImGui.SetNextItemWidth(Math.Min(300, ImGui.GetContentRegionAvail().X));
         if (ImGui.InputText("开始输出命令", ref P.Config.RotationStartCommand, 128)) EzConfig.Save();
-        ImGui.SetNextItemWidth(300);
+        ImGui.SetNextItemWidth(Math.Min(300, ImGui.GetContentRegionAvail().X));
         if (ImGui.InputText("停止输出命令", ref P.Config.RotationStopCommand, 128)) EzConfig.Save();
         ImGui.Unindent(12);
         EndCard();
@@ -636,7 +664,8 @@ public class MainWindow : ConfigWindow
 
         var entries = HuntScanService.GetSnapshot();
         var alive = entries.Count(e => !e.IsDead);
-        ImGui.TextUnformatted($"  上次扫描: {HuntScanService.LastScanTime:HH:mm:ss} ｜ 存活 {alive} 只 / 共 {entries.Count} 只 ｜ 每秒自动刷新，切图后自动重新扫描");
+        ImGui.TextUnformatted($"  上次扫描: {HuntScanService.LastScanTime:HH:mm:ss} ｜ 存活 {alive} 只 / 共 {entries.Count} 只");
+        WrapText("每秒自动刷新，切图后自动重新扫描", ColGray);
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("扫描范围：客户端对象表已加载区域（角色周围约 100 米内）\n点击表格行可选中对应怪物；坐标为游戏地图显示坐标");
 
         if (entries.Count == 0)
@@ -703,17 +732,8 @@ public class MainWindow : ConfigWindow
 
     private Dalamud.Bindings.ImGui.ImDrawListPtr cardDl;
 
-    private void BeginCard()
-    {
-        cardDl = ImGui.GetWindowDrawList();
-        cardDl.ChannelsSplit(2);
-        cardDl.ChannelsSetCurrent(0);
-        ImGui.BeginGroup();
-        ImGui.Dummy(new Vector2(0, 3f));
-        ImGui.Indent(12);
-    }
-
-    private void BeginCard(float fixedWidth)
+    /// <summary>开始一张自适应宽度卡片（minWidth 仅作背景/排版的最小宽度参考）。</summary>
+    private float BeginCard(float minWidth = 0)
     {
         cardDl = ImGui.GetWindowDrawList();
         cardDl.ChannelsSplit(2);
@@ -721,34 +741,92 @@ public class MainWindow : ConfigWindow
         ImGui.BeginGroup();
         ImGui.Dummy(new Vector2(0, 3f));
         ImGui.Indent(10);
+        return minWidth;
     }
 
-    private void EndCard()
+    /// <summary>结束卡片；minWidth &gt; 0 时背景至少画这么宽，返回实际内容宽度。</summary>
+    private float EndCard(float minWidth = 0)
     {
         ImGui.Dummy(new Vector2(0, 3f));
         ImGui.Unindent(ImGui.GetStyle().IndentSpacing);
         ImGui.EndGroup();
         var min = ImGui.GetItemRectMin();
         var max = ImGui.GetItemRectMax();
+        var gw = max.X - min.X;
+        if (minWidth > gw) max.X = min.X + minWidth;
         cardDl.ChannelsSetCurrent(1);
         cardDl.AddRectFilled(min, max, CardBg, 10f);
         cardDl.ChannelsMerge();
+        return gw;
     }
 
     /// <summary>内容区右对齐 X 坐标（预留 reserve 像素）。</summary>
     private static float GetContentRight(float reserve = 0f) =>
         ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - reserve;
 
+    // ===== 绘制辅助：自适应文本 =====
+
+    /// <summary>中文文本按可用宽度手动换行（ImGui 默认只在空格处断行，中文长句会溢出）。</summary>
+    private static void WrapText(string s, uint color)
+    {
+        if (string.IsNullOrEmpty(s)) return;
+        var avail = ImGui.GetContentRegionAvail().X;
+        var sb = new System.Text.StringBuilder();
+        var lineStart = 0; var lineW = 0f; var fits = true;
+        // 简单贪心：逐字符测量超宽即断行
+        for (var i = 0; i < s.Length; i++)
+        {
+            var ch = s[i];
+            if (ch == '\n') { sb.Append(s, lineStart, i - lineStart + 1); lineStart = i + 1; lineW = 0; continue; }
+            lineW += ImGui.CalcTextSize(ch.ToString()).X;
+            if (lineW > avail && i > lineStart)
+            {
+                sb.Append(s, lineStart, i - lineStart).Append('\n');
+                lineStart = i; lineW = ImGui.CalcTextSize(ch.ToString()).X;
+                fits = false;
+            }
+        }
+        sb.Append(s, lineStart, s.Length - lineStart);
+        ImGui.TextColored(color, sb.ToString());
+    }
+
+    /// <summary>右对齐灰色信息：空间足够时贴右，不足时另起一行（防止与左侧标题重叠/溢出）。</summary>
+    private void RightInfo(string text)
+    {
+        var tw = ImGui.CalcTextSize(text).X;
+        var avail = ImGui.GetContentRegionAvail().X;
+        if (tw <= avail - 10)
+        {
+            ImGui.SameLine(GetContentRight(tw));
+            ImGui.TextColored(ColGray, text);
+        }
+        else
+        {
+            ImGui.TextColored(ColGray, text);
+        }
+    }
+
+    /// <summary>宽度自适应的定宽输入（不超过剩余空间）。</summary>
+    private static void WidthItem(float preferred)
+    {
+        ImGui.SetNextItemWidth(Math.Min(preferred, ImGui.GetContentRegionAvail().X));
+    }
+
     // ===== 绘制辅助：toggle 开关行 =====
 
     private void ToggleRow(string label, string? sub, string id, ref bool value, string? tooltip = null)
     {
+        var switchW = ImGui.GetFrameHeight() * 0.72f * 1.8f + 16f;
+        var labelEnd = ImGui.GetCursorPosX() + ImGui.CalcTextSize(label).X;
         ImGui.TextUnformatted(label);
-        if (sub != null)
+        var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - switchW;
+        if (right < labelEnd + 12)
         {
-            ImGui.TextColored(ColGray, sub);
+            // 窗口太窄：开关放到下一行右侧
+            ImGui.NewLine();
+            right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - switchW;
         }
-        ImGui.SameLine(GetContentRight(48));
+        ImGui.SameLine(right);
         var v = DrawSwitch(id, value);
         if (v != value)
         {
@@ -757,6 +835,10 @@ public class MainWindow : ConfigWindow
         }
         if (tooltip != null && ImGui.IsItemHovered())
             ImGui.SetTooltip(tooltip);
+        if (sub != null)
+        {
+            WrapText(sub, ColGray);
+        }
     }
 
     private static bool DrawSwitch(string id, bool value)
