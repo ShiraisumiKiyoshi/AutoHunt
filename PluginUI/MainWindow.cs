@@ -300,12 +300,12 @@ public class MainWindow : ConfigWindow
             var info = WorldName(c.WorldId) + (pc != null ? " · 在附近" : " · 未在附近");
             var infoW = ImGui.CalcTextSize(info).X;
             // 世界服信息右对齐放在「取消」左侧；空间不足时省略（全部光标相对，适配缩进/内边距）
-            if (infoW + 16 + cancelW <= avail)
+            if (infoW + 16 + cancelW + RightPad <= avail)
             {
-                ImGui.SameLine(0, Math.Max(8, avail - infoW - cancelW - 10));
+                ImGui.SameLine(0, Math.Max(8, avail - infoW - cancelW - RightPad - 10));
                 ImGui.TextColored(ColGray, info);
             }
-            ImGui.SameLine(0, Math.Max(8, ImGui.GetContentRegionAvail().X - cancelW));
+            ImGui.SameLine(0, Math.Max(8, ImGui.GetContentRegionAvail().X - cancelW - RightPad));
             if (ImGui.SmallButton("取消"))
             {
                 Conductor.Remove(c.Name);
@@ -791,14 +791,17 @@ public class MainWindow : ConfigWindow
         ImGui.TextColored(color, sb.ToString());
     }
 
-    /// <summary>右对齐灰色信息：空间足够时贴右，不足时另起一行（防止与左侧标题重叠/溢出）。</summary>
+    /// <summary>右对齐安全边距：避免右对齐元素贴死内容区边缘/压进滚动条。</summary>
+    private const float RightPad = 16f;
+
+    /// <summary>右对齐灰色信息：空间足够时贴右（留边距），不足时另起一行。</summary>
     private void RightInfo(string text)
     {
         var tw = ImGui.CalcTextSize(text).X;
         var avail = ImGui.GetContentRegionAvail().X;
-        if (tw <= avail - 10)
+        if (tw + RightPad + 8 <= avail)
         {
-            ImGui.SameLine(0, Math.Max(8, avail - tw));
+            ImGui.SameLine(0, Math.Max(8, avail - tw - RightPad));
             ImGui.TextColored(ColGray, text);
         }
         else
@@ -824,14 +827,14 @@ public class MainWindow : ConfigWindow
         var switchW = ImGui.GetFrameHeight() * 0.72f * 1.8f;
         ImGui.TextUnformatted(label);
 
-        if (labelW + 16 + switchW <= avail)
+        if (labelW + 16 + switchW + RightPad <= avail)
         {
-            ImGui.SameLine(0, Math.Max(8, avail - labelW - switchW - 8));
+            ImGui.SameLine(0, Math.Max(8, avail - labelW - switchW - RightPad));
         }
         else
         {
-            // 窗口太窄：开关放到下一行右侧
-            ImGui.SetCursorPosX(x0 + avail - switchW);
+            // 窗口太窄：开关放到下一行右侧（仍留边距）
+            ImGui.SetCursorPosX(x0 + avail - switchW - RightPad);
         }
         var v = DrawSwitch(id, value);
         if (v != value)
