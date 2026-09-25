@@ -14,12 +14,13 @@ namespace AutoHunt;
 /// </summary>
 internal static class CrossRegionController
 {
-    private enum Phase { Inactive, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, CreatePF }
+    private enum Phase { Inactive, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, FetchConductors, CreatePF }
 
     private static Phase phase = Phase.Inactive;
     private static DateTime stepStart = DateTime.MinValue;
     private static string targetWorld = "";
     private static bool pfEnqueued = false;
+    private static bool fetchEnqueued = false;
     private static bool wasBetweenAreas = false;
     private static DateTime citySince = DateTime.MinValue;
     private static int preTpAttempts = 0;
@@ -29,7 +30,7 @@ internal static class CrossRegionController
 
     internal static bool Active => phase != Phase.Inactive;
 
-    /// <summary>当前流程状态（状态页展示用）。</summary>
+    /// <summary>当前流程状态（状态页/操作条展示用）。</summary>
     internal static string CurrentState => phase switch
     {
         Phase.Inactive => "未运行",
@@ -37,9 +38,31 @@ internal static class CrossRegionController
         Phase.ToPreCity => $"前往跨区城市（{PreCityName}）",
         Phase.DcTravel => $"跨区传送中（→ {targetWorld}）",
         Phase.ToPostCrystal => "传送到跨区后水晶",
+        Phase.FetchConductors => "自动获取车头",
         Phase.CreatePF => "自动开启招募",
         _ => "未知",
     };
+
+    /// <summary>跨区阶段进度链（操作条显示）：阶段名列表 + 当前阶段下标，-1 = 未运行。</summary>
+    internal static readonly string[] PhaseStepNames = { "解散小队", "传送城市", "跨区", "传送水晶", "获取车头", "开招募" };
+
+    internal static (string[] Names, int Current) PhaseSteps
+    {
+        get
+        {
+            var cur = phase switch
+            {
+                Phase.DisbandParty => 0,
+                Phase.ToPreCity => 1,
+                Phase.DcTravel => 2,
+                Phase.ToPostCrystal => 3,
+                Phase.FetchConductors => 4,
+                Phase.CreatePF => 5,
+                _ => -1,
+            };
+            return (PhaseStepNames, cur);
+        }
+    }
 
     /// <summary>跨区前城市定义：显示名 / Aetheryte RowId / TerritoryType。</summary>
     internal static readonly (string Name, uint AetheryteId, uint Territory)[] PreCities =
@@ -58,6 +81,7 @@ internal static class CrossRegionController
     public static void Begin()
     {
         if (!P.Config.CrossRegionEnable) return;
+        if (!P.Config.Enabled) return; // 总开关关闭时不启动
         if (Active)
         {
             Notify.Info("跨区：跨区流程已在进行中，忽略本次触发。");
@@ -97,6 +121,7 @@ internal static class CrossRegionController
         wasBetweenAreas = false;
         targetWorld = "";
         pfEnqueued = false;
+        fetchEnqueued = false;
         citySince = DateTime.MinValue;
         preTpAttempts = 0;
         lifestreamStarted = false;
@@ -112,6 +137,7 @@ internal static class CrossRegionController
         phase = Phase.Inactive;
         targetWorld = "";
         pfEnqueued = false;
+        fetchEnqueued = false;
         wasBetweenAreas = false;
         citySince = DateTime.MinValue;
         preTpAttempts = 0;
@@ -126,6 +152,12 @@ internal static class CrossRegionController
         if (!Player.Available) return;
         if (S.LifestreamIPC == null || S.TeleporterIPC == null) return;
 
+        // 总开关：关闭时立即复位（正常情况下主循环闸门已提前拦截，此处兜底）
+        if (!P.Config.Enabled)
+        {
+            Reset();
+            return;
+        }
         // 运行中随时尊重开关：关闭「启用跨区功能」立即中止流程
         if (!P.Config.CrossRegionEnable)
         {
@@ -149,6 +181,7 @@ internal static class CrossRegionController
                 case Phase.ToPreCity: UpdateToPreCity(); break;
                     case Phase.DcTravel: UpdateDcTravel(); break;
                 case Phase.ToPostCrystal: UpdateToPostCrystal(); break;
+                case Phase.FetchConductors: UpdateFetchConductors(); break;
                 case Phase.CreatePF: UpdateCreatePF(); break;
             }
         }
@@ -346,28 +379,27 @@ internal static class CrossRegionController
         var post = P.Config.CrossRegionPostAetheryteId;
         if (post == 0)
         {
-            // 未配置跨区后水晶，直接进入招募阶段
-            phase = Phase.CreatePF;
-            stepStart = DateTime.Now;
+            // 未配置跨区后水晶，直接进入下一阶段（获取车头/招募）
+            EnterNextPhaseAfterCrystal();
             return;
         }
 
         var betweenAreas = Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51];
         if (wasBetweenAreas && !betweenAreas && Player.Interactable)
         {
-            phase = Phase.CreatePF;
             stepStart = DateTime.Now;
             wasBetweenAreas = false;
             Notify.Info("跨区：已传送到目标水晶。");
+            EnterNextPhaseAfterCrystal();
             return;
         }
 
         if ((DateTime.Now - stepStart).TotalSeconds > 120)
         {
             Notify.Error("跨区：传送前往跨区后水晶超时，跳过该步骤。");
-            phase = Phase.CreatePF;
             stepStart = DateTime.Now;
             wasBetweenAreas = false;
+            EnterNextPhaseAfterCrystal();
             return;
         }
 
@@ -383,6 +415,50 @@ internal static class CrossRegionController
                 AutoHunt.NativeTeleport(post);
             }
             wasBetweenAreas = true;
+        }
+    }
+
+    /// <summary>传送水晶完成/跳过后：按开关进入「自动获取车头」或直接进入「自动开启招募」。</summary>
+    private static void EnterNextPhaseAfterCrystal()
+    {
+        if (P.Config.CrossRegionAutoFetchConductor)
+        {
+            phase = Phase.FetchConductors;
+            stepStart = DateTime.Now;
+            fetchEnqueued = false;
+            Notify.Info("跨区：开始自动获取车头…");
+        }
+        else
+        {
+            phase = Phase.CreatePF;
+            stepStart = DateTime.Now;
+        }
+    }
+
+    // ===== 阶段 3.5：自动获取车头 =====
+
+    private static void UpdateFetchConductors()
+    {
+        // 已有车头时跳过获取（避免覆盖手动设置的车头）
+        if (!fetchEnqueued)
+        {
+            if (Conductor.IsValid)
+            {
+                Notify.Info("跨区：当前已有车头，跳过自动获取车头。");
+                phase = Phase.CreatePF;
+                stepStart = DateTime.Now;
+                return;
+            }
+            fetchEnqueued = true;
+            ConductorFetchService.Enqueue();
+        }
+
+        // 获取车头占用 TaskManager，等它跑完即进入下一阶段；超时 120 秒兜底
+        if ((!P.TaskManager.IsBusy && !ConductorFetchService.Running)
+            || (DateTime.Now - stepStart).TotalSeconds > 120)
+        {
+            phase = Phase.CreatePF;
+            stepStart = DateTime.Now;
         }
     }
 

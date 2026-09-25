@@ -52,7 +52,7 @@ public class ContextMenuManager : IDisposable
         if (!ValidAddons.Contains(args.AddonName)) return;
 
         var name = StripWorldSuffix(mt.TargetName);
-        if (Conductor.IsValid && name == P.Config.ConductorName)
+        if (Conductor.IsConductor(name))
         {
             args.AddMenuItem(menuItemClear);
         }
@@ -80,12 +80,16 @@ public class ContextMenuManager : IDisposable
 
     private void ClearConductorClicked(IMenuItemClickedArgs args)
     {
-        Conductor.Clear();
+        if (args.Target is MenuTargetDefault mt && mt.TargetName != null)
+        {
+            Conductor.Remove(StripWorldSuffix(mt.TargetName));
+        }
     }
 
     /// <summary>
-    /// 按名字设置车头：玩家在附近时记录世界服并选中/焦点；不在附近（跨图、太远、对象表无此人）
-    /// 时同样生效——只按名字识别聊天消息，等玩家出现后 EnsureFocus 会自动补上焦点。
+    /// 按名字添加车头（多车头追加，同名去重）：玩家在附近时记录世界服并焦点；
+    /// 不在附近（跨图、太远、对象表无此人）时同样生效——只按名字识别聊天消息，
+    /// 等玩家出现后 EnsureFocus 会自动补上焦点。
     /// </summary>
     public static void SetConductorByName(string rawName)
     {
@@ -99,26 +103,19 @@ public class ContextMenuManager : IDisposable
             return;
         }
 
-        // 找不到玩家对象：不影响设置。世界服记 0（不校验世界服，按名字匹配消息）。
-        P.Config.ConductorName = name;
-        P.Config.ConductorWorldId = 0;
-        EzConfig.Save();
+        Conductor.Add(name, 0, focusIfNearby: false);
         HuntController.Reset();
-        Notify.Info($"你已选中{name}为车头~（玩家当前不在附近，未选中/焦点；不影响坐标识别，靠近后会自动焦点）");
     }
 
     /// <summary>
-    /// 设置车头：记录名称与服务器，选中并焦点该玩家。
+    /// 添加车头：记录名称与服务器，选中并焦点该玩家。
     /// </summary>
     public static void SetConductor(IPlayerCharacter player)
     {
-        P.Config.ConductorName = player.Name.TextValue;
-        P.Config.ConductorWorldId = player.HomeWorld.RowId;
-        EzConfig.Save();
+        Conductor.Add(player.Name.TextValue, player.HomeWorld.RowId);
         Svc.Targets.Target = player;
         Svc.Targets.FocusTarget = player;
         HuntController.Reset();
-        Notify.Info($"你已选中{P.Config.ConductorName}为车头~");
     }
 
     public void Dispose()

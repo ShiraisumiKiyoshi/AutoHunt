@@ -36,8 +36,10 @@ public unsafe class AutoHunt : IDalamudPlugin
         S.Initialize();
         EzConfig.Migrate<Config>();
         Config = EzConfig.Init<Config>();
+        Config.MigrateLegacyConductor();
         EzConfigGui.Init(new PluginUI.MainWindow());
         EzConfigGui.Window.RespectCloseHotkey = false;
+        EzConfigGui.WindowSystem.AddWindow(new PluginUI.FloatingWindow());
         EzCmd.Add("/ah", OnChatCommand, "AutoHunt 自动狩猎助手\n/ah: 打开设置界面\n/ah stop: 停止所有自动行为\n/ah clear: 清除车头\n/ah set <玩家名>: 手动设置车头\n/ah reset: 重置副本区记录");
         TaskManager = new(new TaskManagerConfiguration(timeLimitMS: 60000));
         Svc.Chat.ChatMessage += ChatMessageHandler.Chat_ChatMessage;
@@ -48,10 +50,42 @@ public unsafe class AutoHunt : IDalamudPlugin
     private void ClientState_TerritoryChanged(uint territory)
     {
         InstanceController.OnTerritoryChanged(territory);
+        EndMapWatcher.OnTerritoryChanged();
         if (TeleportTo != null && (territory == 0 || territory == TeleportTo.Territory))
         {
             OnArrival();
         }
+    }
+
+    /// <summary>总开关关闭提示只发一次（重新开启后再次关闭才会再提示）。</summary>
+    private bool masterSwitchArmed = true;
+
+    /// <summary>
+    /// 总开关闸门：关闭时立即停止所有自动行为并清空操作队列（中止任务链、复位全部状态机、
+    /// 停止寻路、取消招募监听），保证重新开启后处于干净的空闲状态、绝不继续之前被中断的流程。
+    /// </summary>
+    private void MasterSwitchGate()
+    {
+        if (Config.Enabled)
+        {
+            masterSwitchArmed = true;
+            return;
+        }
+        if (!masterSwitchArmed) return;
+        masterSwitchArmed = false;
+
+        TaskManager.Abort();
+        CrossRegionController.Reset();
+        HuntController.Reset();
+        InstanceController.Reset();
+        EndMapWatcher.Reset();
+        ConductorFetchService.Cancel();
+        TeleportTo = null;
+        SwitchInProgress = false;
+        HeldCoordinate = null;
+        WasBetweenAreas = false;
+        try { S.VnavmeshIPC?.StopPath(); } catch { }
+        Notify.Info("插件已关闭：已停止所有自动行为并清空操作队列。");
     }
 
     /// <summary>主循环异常兜底：任何控制器异常只提示一次，不让异常反复打断 Update。</summary>
@@ -66,6 +100,10 @@ public unsafe class AutoHunt : IDalamudPlugin
     {
         try
         {
+            // 总开关闸门：关闭时停止一切并清空队列（提示一次），主循环不再推进任何控制器
+            MasterSwitchGate();
+            if (!Config.Enabled) return;
+
             if (!depChecked && DateTime.Now >= depCheckTime)
             {
                 depChecked = true;
@@ -102,6 +140,7 @@ public unsafe class AutoHunt : IDalamudPlugin
             LastPosition = Player.Position;
 
             InstanceController.Update();
+            EndMapWatcher.Update();
             Conductor.EnsureFocus();
             CrossRegionController.Update();
             HuntController.Update();
@@ -224,11 +263,14 @@ public unsafe class AutoHunt : IDalamudPlugin
             SwitchInProgress = false;
             HeldCoordinate = null;
             CrossRegionController.Reset();
+            EndMapWatcher.Reset();
+            ConductorFetchService.Cancel();
+            try { S.VnavmeshIPC?.StopPath(); } catch { }
             Notify.Info("已停止所有自动行为。");
         }
         else if (lower == "clear")
         {
-            Conductor.Clear();
+            Conductor.ClearAll();
         }
         else if (lower.StartsWith("set "))
         {
@@ -263,6 +305,7 @@ public unsafe class AutoHunt : IDalamudPlugin
         Svc.Chat.ChatMessage -= ChatMessageHandler.Chat_ChatMessage;
         Svc.Framework.Update -= Framework_Update;
         Svc.ClientState.TerritoryChanged -= ClientState_TerritoryChanged;
+        ConductorFetchService.Dispose();
         S.Shutdown();
         ECommonsMain.Dispose();
     }

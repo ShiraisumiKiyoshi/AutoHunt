@@ -5,11 +5,25 @@ public class Config : IEzConfig
     /// <summary>插件总开关</summary>
     public bool Enabled = true;
 
-    /// <summary>车头玩家名称</summary>
+    // ===== 车头（多车头） =====
+
+    /// <summary>车头列表：任一车头发送坐标都会触发狩猎流程</summary>
+    public List<ConductorEntry> Conductors = new();
+
+    /// <summary>旧版单车头名字（仅用于配置迁移，迁移后置空不再使用）</summary>
     public string ConductorName = "";
 
-    /// <summary>车头玩家所属世界（服务器）ID，0 表示不校验</summary>
+    /// <summary>旧版单车头世界 ID（仅用于配置迁移）</summary>
     public uint ConductorWorldId = 0;
+
+    /// <summary>悬浮窗显示开关</summary>
+    public bool FloatingWindowEnable = true;
+
+    /// <summary>悬浮窗屏幕位置 X（-1=默认位置）</summary>
+    public float FloatingWindowX = -1f;
+
+    /// <summary>悬浮窗屏幕位置 Y（-1=默认位置）</summary>
+    public float FloatingWindowY = -1f;
 
     /// <summary>自动输出</summary>
     public bool AutoAttack = true;
@@ -84,6 +98,15 @@ public class Config : IEzConfig
     /// <summary>跨区后传送到的水晶 ID（Aetheryte RowId），0 表示不传送</summary>
     public uint CrossRegionPostAetheryteId = 0;
 
+    /// <summary>跨区完成后自动获取车头（读取队员招募-怪物狩猎中的招募人并设为车头）</summary>
+    public bool CrossRegionAutoFetchConductor = false;
+
+    /// <summary>自动取消车头：结束地图击杀满后自动取消全部车头</summary>
+    public bool CrossRegionAutoCancelConductor = false;
+
+    /// <summary>结束地图水晶 ID（Aetheryte RowId），0=未选择（自动取消不生效）</summary>
+    public uint CrossRegionEndAetheryteId = 0;
+
     /// <summary>跨区完成后自动开启队员招募（需同时启用「启用一键创建队员招募」）</summary>
     public bool CrossRegionAutoPF = false;
 
@@ -92,6 +115,31 @@ public class Config : IEzConfig
 
     /// <summary>调试模式</summary>
     public bool Debug = false;
+
+    /// <summary>
+    /// 旧版单车头配置迁移：Conductors 为空且旧字段非空时转换，迁移后清空旧字段。
+    /// 在 EzConfig.Init 之后调用一次。
+    /// </summary>
+    public void MigrateLegacyConductor()
+    {
+        if (Conductors.Count == 0 && !string.IsNullOrWhiteSpace(ConductorName))
+        {
+            Conductors.Add(new ConductorEntry { Name = ConductorName.Trim(), WorldId = ConductorWorldId });
+            Notify.Info($"已将旧版车头「{ConductorName.Trim()}」迁移到多车头列表。");
+        }
+        ConductorName = "";
+        ConductorWorldId = 0;
+    }
+}
+
+/// <summary>车头玩家条目：任一车头的聊天坐标都会触发狩猎流程。</summary>
+public class ConductorEntry
+{
+    /// <summary>角色名（不带 @世界服 后缀）</summary>
+    public string Name = "";
+
+    /// <summary>所属世界（服务器）RowId，0=不校验世界服</summary>
+    public uint WorldId = 0;
 }
 
 /// <summary>狩猎时间表条目：本地时间 HHMM + 目标服务器（世界名，取当前大区内的服务器）。</summary>

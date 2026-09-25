@@ -41,6 +41,14 @@ internal static unsafe class InstanceController
     public static int CachedInstanceCount => cachedInstanceCount;
     public static int CachedCurrentInstance => cachedCurrentInstance;
 
+    /// <summary>
+    /// 本区击杀是否已满（即状态页显示 2/2 的时刻）。
+    /// 注意：可切区地图上击杀满时 killCount 会被清零转入待切换状态，
+    /// 因此「击杀数 ≥ 配置值」或「存在待切换副本区」任一成立即为已满。
+    /// 不可切区地图上击杀数会保持满值，同样能判定。
+    /// </summary>
+    public static bool ZoneCleared => killCount >= P.Config.KillsPerInstance || pendingSwitchInstance != 0;
+
     /// <summary>切换地图时调用。</summary>
     public static void OnTerritoryChanged(uint territory)
     {

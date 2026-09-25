@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="haD3copgsc1Dndg7ewgOil">
+<head data-page-node-id="AEN83CtQbllkPz9AEsZR7n">
+<meta charset="UTF-8" data-page-node-id="qn1ilYHPQEDjIe0te3c0Hu">
+<title>AutoHunt v2.3.0 UI 原型图</title>
+<style>
+  :root{
+    --bg:#101218; --win:#171a22; --win2:#1d212c; --card:#20242f; --card2:#262b38;
+    --line:#2e3442; --line2:#3a4152;
+    --tx:#e3e7f0; --tx2:#9aa1b3; --tx3:#6b7284;
+    --green:#4fd07a; --amber:#f0b45b; --red:#e25c5c; --cyan:#5bc8f5; --purple:#b58af5; --blue:#6f9df5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#0a0c10;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:var(--tx);
+       display:flex;flex-direction:column;align-items:center;padding:32px 16px;gap:20px;min-height:100vh;}
+  h1{font-size:16px;font-weight:500;color:var(--tx2);}
+  .scene{width:760px;}
+  .demo-bar{width:760px;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--tx2);}
+  .demo-bar button{background:var(--win2);color:var(--tx2);border:1px solid var(--line);border-radius:8px;
+       padding:6px 14px;cursor:pointer;font-size:13px;}
+  .demo-bar button.on{color:var(--tx);border-color:#5b8af5;background:#233047;}
+  .demo-bar .hint{margin-left:auto;font-size:12px;color:var(--tx3);}
+  .window{background:var(--win);border:1px solid var(--line2);border-radius:12px;overflow:hidden;
+          box-shadow:0 12px 40px rgba(0,0,0,.5);}
+  .titlebar{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;
+            background:var(--win2);border-bottom:1px solid var(--line);}
+  .titlebar .t{font-size:14px;font-weight:500;}
+  .titlebar .x{color:var(--tx3);font-size:13px;letter-spacing:6px;}
+  .body{padding:12px 16px 16px;}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .card{background:var(--card);border-radius:8px;padding:10px 12px;cursor:pointer;border:1px solid transparent;}
+  .card:hover{border-color:var(--line2);}
+  .card .lb{font-size:12px;color:var(--tx2);}
+  .card .vl{font-size:19px;font-weight:500;margin-top:3px;display:flex;align-items:center;gap:8px;}
+  .card .vl.sm{font-size:14px;margin-top:7px;}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .ops{display:flex;gap:8px;margin-top:10px;}
+  .ops button{flex:1;padding:8px 0;background:#243452;color:#c8dbff;border:1px solid #3c5a99;
+              border-radius:8px;font-size:13px;cursor:pointer;}
+  .ops button:hover{background:#2b3f63;}
+  .ops button.warn{background:#33262e;color:#e0b8c8;border-color:#5a3c50;flex:0 0 120px;}
+  /* 当前操作条 */
+  .opstrip{margin-top:10px;border-radius:8px;padding:9px 14px;display:flex;align-items:center;gap:10px;
+           font-size:13px;background:var(--card);border:1px solid var(--line);}
+  .opstrip .tag{font-size:12px;padding:2px 10px;border-radius:10px;white-space:nowrap;}
+  .opstrip .txt{font-weight:500;}
+  .opstrip .steps{margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--tx3);}
+  .opstrip .steps b{font-weight:400;}
+  .opstrip .steps .done{color:var(--green);}
+  .opstrip .steps .now{color:var(--tx);font-weight:500;}
+  .opstrip .steps .sep{color:var(--tx3);margin:0 2px;}
+  .opstrip.st-cross{border-color:#4b3a6e;background:#221c31;}
+  .opstrip.st-cross .tag{background:#3a2b5c;color:#d3bdf8;}
+  .opstrip.st-hunt{border-color:#2e4a36;background:#18231b;}
+  .opstrip.st-hunt .tag{background:#28452f;color:#a8e6b8;}
+  .opstrip.st-fetch{border-color:#1e4653;background:#132229;}
+  .opstrip.st-fetch .tag{background:#1f4450;color:#a8e0f5;}
+  .opstrip.st-idle{opacity:.75;}
+  .opstrip.st-idle .tag{background:#2a2f3c;color:var(--tx2);}
+  /* tabs */
+  .tabs{display:flex;gap:2px;margin-top:12px;border-bottom:1px solid var(--line);font-size:13px;}
+  .tabs span{padding:7px 16px;color:var(--tx2);cursor:pointer;border-bottom:2px solid transparent;}
+  .tabs span.on{color:var(--tx);border-bottom-color:#5b8af5;font-weight:500;}
+  .pane{display:none;padding-top:12px;flex-direction:column;gap:10px;}
+  .pane.on{display:flex;}
+  .panel{background:var(--card);border-radius:8px;padding:10px 14px;}
+  .panel>.hd{font-size:13px;font-weight:500;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
+  .panel>.hd .r{font-weight:400;font-size:12px;color:var(--tx2);}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;color:#cdd3e0;}
+  .row .sub{display:block;font-size:12px;color:var(--tx3);margin-top:1px;}
+  .sw{width:34px;height:18px;border-radius:9px;position:relative;flex:0 0 34px;cursor:pointer;}
+  .sw i{position:absolute;top:2px;width:14px;height:14px;border-radius:50%;background:#8a90a0;}
+  .sw.off{background:#3a3f4e;} .sw.off i{left:2px;}
+  .sw.on{background:#2e5a3c;} .sw.on i{right:2px;background:var(--green);}
+  .sw.on.amber{background:#5c4a22;} .sw.on.amber i{background:var(--amber);}
+  select,input[type=text]{background:var(--win2);color:var(--tx);border:1px solid var(--line2);
+      border-radius:6px;padding:4px 10px;font-size:13px;min-width:180px;}
+  input[type=range]{accent-color:#5b8af5;width:200px;}
+  .conductor{display:flex;flex-direction:column;gap:6px;}
+  .cond{display:flex;align-items:center;justify-content:space-between;background:var(--card2);
+        border-radius:6px;padding:7px 10px;font-size:13px;}
+  .cond .nm .w{color:var(--tx2);font-size:12px;margin-left:6px;}
+  .cond .rm{font-size:12px;color:#e08585;border:1px solid #5a3c3c;border-radius:6px;padding:2px 12px;cursor:pointer;}
+  .cond .rm:hover{background:#3a2626;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{color:var(--tx2);font-weight:400;text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font-size:12px;}
+  td{padding:6px 8px;border-bottom:1px solid #242938;color:#cdd3e0;}
+  tr:nth-child(even) td{background:#1e222c;}
+  td .click{color:#8ab8f5;cursor:pointer;}
+  .rankS{color:#cc8af5;font-weight:500;} .rankA{color:#f5975b;font-weight:500;}
+  .dep{display:flex;flex-direction:column;gap:4px;font-size:13px;}
+  .dep .ok{color:var(--green);} .dep .miss{color:var(--red);}
+  .kv{display:flex;gap:24px;font-size:13px;color:#cdd3e0;flex-wrap:wrap;}
+  .kv b{color:var(--tx2);font-weight:400;margin-right:6px;}
+  .note{font-size:12px;color:var(--tx3);line-height:1.7;}
+  .timeline{display:flex;flex-direction:column;gap:5px;font-size:13px;}
+  .timeline .tl{display:flex;align-items:center;gap:8px;color:#cdd3e0;}
+  .timeline .ck{color:var(--green);} .timeline .cur{color:#5b8af5;font-weight:500;} .timeline .wt{color:var(--tx3);}
+  .endmap-dis{font-size:12px;color:var(--tx3);padding:2px 0 0;}
+  .foot{color:var(--tx3);font-size:12px;text-align:center;}
+</style>
+</head>
+<body data-page-node-id="v1R0tuGoxTRscEgMeGlaFq">
+<h1 data-page-node-id="o3jcDbfYFsZ6c0iyEccgaC">AutoHunt v2.3.0 主窗口原型 — 可点击标签页，顶部按钮可切换「当前操作条」的运行状态</h1>
+
+<div class="demo-bar" data-page-node-id="kYVFxaBtWeEFTpOgzNZ5kV">
+  <button class="on" data-op="cross" data-page-node-id="JomLHNAxtsOw89035MBk0m">跨区中</button>
+  <button data-op="hunt" data-page-node-id="Ty8slzAnGPQPb8iFBaQObY">狩猎中</button>
+  <button data-op="fetch" data-page-node-id="9LbVieHUeUGMb2VYHk7m7U">获取车头中</button>
+  <button data-op="idle" data-page-node-id="tGdg5KUhC3bTk0AOV6YXku">空闲</button>
+  <span class="hint" data-page-node-id="UUuTlpqgRI7cAaTTNV2m1c">「当前操作条」按优先级只显示最高优先级的活动操作</span>
+</div>
+
+<div class="scene" data-page-node-id="U0y6qAz8TxTTXAxfyEqAdX">
+<div class="window" data-page-node-id="9b7BZqqSsOFnwOCwC8hnyC">
+  <div class="titlebar" data-page-node-id="WYPwXCipBeEWYFjyIPMc9s"><span class="t" data-page-node-id="XfEaHP2CvuQeTdSZ1mXyvr">AutoHunt 设置</span><span class="x" data-page-node-id="uFGL3QFcKythNFu9Wt8OA6">— ✕</span></div>
+  <div class="body" data-page-node-id="r6cNHEQSNswJYFQ66vXbPf">
+
+    <div class="cards" data-page-node-id="hxARad8SaexNAJA7kHBoaT">
+      <div class="card" data-page-node-id="UhkwfbH1btZ1NhXKFqzTwQ"><div class="lb" data-page-node-id="4ln7JnTEnYaSLzm9RYZYG6">车头</div><div class="vl" data-page-node-id="c7nnETSMoG1a9kzMS1F8kM">3 人 <span class="dot" style="background:var(--green)" data-page-node-id="Gma8bdn7u0ZQyN5RRkxEmf"></span></div></div>
+      <div class="card" data-page-node-id="MrnPKPRPpULRWMDZhOsuo8"><div class="lb" data-page-node-id="mY50y8UwsVdSosVK94ojtc">狩猎状态</div><div class="vl sm" style="color:var(--cyan)" data-page-node-id="omi0wZK1TOrs2cZZAdOHPF">等待车头坐标</div></div>
+      <div class="card" data-page-node-id="J8MBjC48BiVfJ11cQzIsfh"><div class="lb" data-page-node-id="fz7VIgoOJtD7qJWzLuU4Lc">本区击杀</div><div class="vl" style="color:var(--amber)" data-page-node-id="T8OOo3vFodV87N73Bt23qq">2 / 2</div></div>
+      <div class="card" data-page-node-id="cw3ycnTW0XPkxzua93CT5v"><div class="lb" data-page-node-id="fXJvo1Mrq6eHOCGLMGlwzK">副本区</div><div class="vl" data-page-node-id="9RBZHpxPighPx5dTWoY5Rn">2 / 3</div></div>
+    </div>
+
+    <div class="ops" data-page-node-id="jr2eVRmuhP0DtKRwtHFAx8">
+      <button data-page-node-id="aRbxqj3ovhq3cU7Udv0QOA">自动获取车头</button>
+      <button data-page-node-id="wfdwpkwzx8jkpWTYfJMHzu">创建怪物狩猎招募</button>
+      <button class="warn" data-page-node-id="OsFApoapX2BGqFndNifYAh">全部取消车头</button>
+    </div>
+
+    <div class="opstrip st-cross" id="opstrip" data-page-node-id="De0mNWsRxYmuhFRnYvw0uF">
+      <span class="tag" id="op-tag" data-page-node-id="CSsmMWKfbL2aKCLSgSMKCf">跨区</span>
+      <span class="txt" id="op-txt" data-page-node-id="ozaS1ARgdTugwZqUV7Aqx0">传送到跨区后水晶</span>
+      <span class="steps" id="op-steps" data-page-node-id="Qyz8r9c6cEOyVIniacXt2v">
+        <b class="done" data-page-node-id="kclKULNFdopnPWLYzoXLzt">✓解散小队</b><span class="sep" data-page-node-id="tb89lf6UlItc0QVXT5xy4B">→</span><b class="done" data-page-node-id="Q85p5SJAS40I3nQgUXoy0n">✓传送城市</b><span class="sep" data-page-node-id="6IYYLGSNvzO9xbfEsoahDX">→</span>
+        <b class="done" data-page-node-id="wd6jNGu2CRjf3xiABwgLP4">✓跨区</b><span class="sep" data-page-node-id="kz02aLsvp59Q9Fp51bRfTl">→</span><b class="now" data-page-node-id="1cPP0vEBDQEAzTOSdE3nci">传送水晶</b><span class="sep" data-page-node-id="UYswqR5W6rKoFXfqrRqmX1">→</span>
+        <b class="wt" data-page-node-id="ovsQF7VHBxGA96tDwSbpwv">获取车头</b><span class="sep" data-page-node-id="DJL2YJapSSbB4Wl7gJrlHw">→</span><b class="wt" data-page-node-id="LobsL6McR06CO2bumVKH3B">开招募</b>
+      </span>
+    </div>
+
+    <div class="tabs" id="tabs" data-page-node-id="dmPzAu5x062zWjLvnU5RPB">
+      <span class="on" data-p="status" data-page-node-id="9Xy5OdMy9ImIvylkYoGekr">状态</span>
+      <span data-p="hunt" data-page-node-id="nmwV6fVWjKjAK6u6OQeX2N">狩猎</span>
+      <span data-p="recruit" data-page-node-id="4WEtGZfA88UhwEfoQBwPxi">招募</span>
+      <span data-p="cross" data-page-node-id="JL3kmFjExZPudpSmKxxjwu">跨区</span>
+      <span data-p="adv" data-page-node-id="9pGkFTHN4YrFXGcQzjrIRN">高级</span>
+    </div>
+
+    <!-- 状态 -->
+    <div class="pane on" data-p="status" data-page-node-id="EP9IDBImDOPUKfm6sA7lmI">
+      <div class="panel" data-page-node-id="syG7sDaxBdkYq4HbnhZwGT">
+        <div class="hd" data-page-node-id="Co67WzjYUCYhGBHYgW2UVu">当前操作明细 <span class="r" data-page-node-id="aWw3kVLMQ4aAJKSsmBcvnE">跨区流程 · 已进行 01:24</span></div>
+        <div class="timeline" data-page-node-id="4oaULbR6HS7wpU6xEumQBe">
+          <div class="tl" data-page-node-id="A2YBFE0aSvs2LMF5HVYGY7"><span class="ck" data-page-node-id="LHSqG8OAnldFfAkNwPw4G9">✓</span>解散小队（/pcmd breakup）</div>
+          <div class="tl" data-page-node-id="Fewc6I7Mv9GXfNc7CAZKI5"><span class="ck" data-page-node-id="XJ8iaAVmudpmJQEKnvCNEG">✓</span>传送至跨区前城市：格里达尼亚新街</div>
+          <div class="tl" data-page-node-id="ErmYJPWM6F6BeN0YFDolQt"><span class="ck" data-page-node-id="AwWoYkT2AbSlS6wQcnIZDi">✓</span>跨区传送：陆行鸟 → 猫小胖（拉诺西亚）</div>
+          <div class="tl" data-page-node-id="a3pM9Rvq7Y7Ag4TBLe08t9"><span class="cur" data-page-node-id="hNOAuelnne3buPIyxX0HJd">▶ 传送到跨区后水晶：内丹（进行中，等待读图）</span></div>
+          <div class="tl wt" data-page-node-id="xQvgLQdyaGDraFBeCTKNyl">○ 自动获取车头</div>
+          <div class="tl wt" data-page-node-id="fVPpizOuA1XLY4JvDdKgqO">○ 自动开启招募</div>
+        </div>
+      </div>
+      <div class="panel" data-page-node-id="F2B633YJtBCvoIdqjZUa90">
+        <div class="hd" data-page-node-id="1BrGhVz99scNC7raXfI0S6">狩猎 <span class="r" data-page-node-id="5NNhc78xnGL4hknxlKVpbC">狩猎怪库 219 只已加载</span></div>
+        <div class="kv" data-page-node-id="aGqtJx13w5xwBHoCN3bONd">
+          <span data-page-node-id="IWdiOGddxrxl3n1ToJZmeD"><b data-page-node-id="G3yfugQ9FNAiwVDc7etscQ">目标</b>[A] 长须豹</span><span data-page-node-id="hMZAvEdl6lEGYojb9F00xj"><b data-page-node-id="jDG8EVLqtyGuuBTteIiilX">血量</b>—</span>
+          <span data-page-node-id="7BaKLGFFMMCYMFfGMcex0C"><b data-page-node-id="e7ysCnjlHAALUWkUAExkF8">出生点辅助</b><span style="color:var(--cyan)" data-page-node-id="yR1IWKBQHZOfM9HLWCMGV7">命中（前往出生点等待）</span></span>
+        </div>
+      </div>
+      <div class="panel" data-page-node-id="SM2FwDboisJkeeHoY2CnIb">
+        <div class="hd" data-page-node-id="6patSJUrRoFKG1zhJm2UKT">副本区 <span class="r" data-page-node-id="21Law6NiKA0o7xWuN06LiY">本区击杀已满，等待车头新坐标切换 3 号区</span></div>
+        <div class="kv" data-page-node-id="TFo5Q3PI9mNgMJHoNhLgZh"><span data-page-node-id="bPEv5mCJExXIsB5j3WhEve"><b data-page-node-id="ujLlzJSuRPwNGQNPV34oRw">当前</b>2 / 3</span><span data-page-node-id="005FLu5LeEgiLoKmaCKhOm"><b data-page-node-id="qL5bcc0IXcZWyE5aDP3G8r">击杀</b>2 / 2</span><span style="color:var(--amber)" data-page-node-id="CdWT5Qz37V3wFyEwCzaA5q"><b data-page-node-id="gnNuYeeFISOxM2TnyfgDmv">待切换</b>3 号副本区</span></div>
+      </div>
+      <div class="panel" data-page-node-id="Siv3dBCXWVGFNAEYijL5w9">
+        <div class="hd" data-page-node-id="oATg1lvzbUE3qkcLYgq13R">地图狩猎怪扫描 <span class="r" data-page-node-id="UDqvJykOazxdNv7OCFCTch">上次 13:48:21 ｜ 存活 2 / 4 ｜ 每秒自动刷新</span></div>
+        <table data-page-node-id="dZGL04GGnI24tVVd5DqeKG">
+          <tr data-page-node-id="mhe8ToFxWfTn85fF7mGAq6"><th data-page-node-id="WuUsHFOMm5YHJAQYXWxvD9">等级</th><th data-page-node-id="QogAXxhJE3qroRhR9aPeH8">名称</th><th data-page-node-id="EEGXcgbKHNgAtPfKrfIVvV">血量</th><th data-page-node-id="tjyMpCzvt3mHfD3zpqrxh1">距离</th><th data-page-node-id="6Ogqwj1m24AWWDB184KDG3">地图坐标</th></tr>
+          <tr data-page-node-id="sTTvtKz8VKZbxFytU7Tiou"><td class="rankA" data-page-node-id="WqsaT96ntUhAp9pzPi2uEG">A</td><td data-page-node-id="GypM8cLE4fopxODsdfZhHr"><span class="click" data-page-node-id="RJm9aTtJtimvLjYEALKb1h">长须豹</span></td><td data-page-node-id="HzRfQwWlxu7Irak56a81db">100%</td><td data-page-node-id="etPqz8TZ77ET8zn5xZlDCl">87m</td><td data-page-node-id="r3loJej1BWb9Cyj2Oab9H0">(21.3, 14.8)</td></tr>
+          <tr data-page-node-id="jrkyYNRqrWjB5QIoQAHbV1"><td class="rankS" data-page-node-id="FeP26rDSWkxrOpO1aE7I7e">S</td><td data-page-node-id="UFPleG7A4CRjwGARsBoClq"><span class="click" data-page-node-id="g2Q5kZmzd2Q0paV7GQKkRX">茘德</span></td><td data-page-node-id="kkvlTBXDbfl5uizNmYFgtJ">64%</td><td data-page-node-id="9bHETgCGHKnmwgeh9PsDgd">112m</td><td data-page-node-id="v21HwFVwGv4qTMe4CSSFss">(18.0, 22.5)</td></tr>
+          <tr data-page-node-id="9I03ovgNaebQKBcjOUDE8e"><td class="rankA" data-page-node-id="OoDCMzQxuo7P2OI8kA3AUX">A</td><td data-page-node-id="lYqkcA8sqJfjDrVSiVStlL"><span class="click" data-page-node-id="8VeGC27WzW4FCGm4Ozpf0i">长须豹</span></td><td style="color:var(--tx3)" data-page-node-id="oOuePy9U3LobItWTJ9UKtT">死亡</td><td data-page-node-id="Cjuw2wqB4sEEsqsGTWDtB3">—</td><td data-page-node-id="6ZA4NHK3WIBEl5NMTFWodP">(9.7, 31.2)</td></tr>
+        </table>
+      </div>
+      <div class="panel" data-page-node-id="BllYFUPphbeNSD8Vst43Uy">
+        <div class="hd" data-page-node-id="yFzJTCCQ3qSjlQ0R9JxmaQ">依赖插件</div>
+        <div class="dep" data-page-node-id="6rJnG2sRsAZEtIOiSepBbf">
+          <span class="ok" data-page-node-id="wETj2uVCSDyG1AvaOX265P">√ vnavmesh（必需）— 寻路功能</span>
+          <span class="ok" data-page-node-id="WXoatSrTGqNcZfoHzuhdd9">√ RotationSolver（可选）— 自动输出</span>
+          <span class="ok" data-page-node-id="CnBIvJZAkyWVsxZ8dfQw64">√ Lifestream（可选）— 副本区切换、跨区传送</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 狩猎 -->
+    <div class="pane" data-p="hunt" data-page-node-id="TEP219m1hWvAQ0brtgZ9oq">
+      <div class="panel" data-page-node-id="EDbinWOBfhGJhm6EOZP8mC">
+        <div class="hd" data-page-node-id="BcvrrBBUHlAKYOppL4Cp7V">车头（3）<span class="r" data-page-node-id="dRkgHTdQv4xi4YGQdN70SI">任一车头发送坐标都会触发狩猎</span></div>
+        <div class="conductor" data-page-node-id="p7UXZyCtEK5AmIQB8xihFQ">
+          <div class="cond" data-page-node-id="tiXA7zGWTbI3BmkpGqxy3b"><span data-page-node-id="FYctPszijGxgbSW49tH035"><span class="dot" style="background:var(--green);margin-right:8px;" data-page-node-id="Q7jGAV1T23yDM73GZkLoOW"></span>甲同学<span class="w" data-page-node-id="P73BuJxzr1HLVVOWwztNNY">陆行鸟 · 焦点正常</span></span><span class="rm" data-page-node-id="0cyoilFnX1LVWTptCczvNU">取消</span></div>
+          <div class="cond" data-page-node-id="9Yak2InbJHlS2kkWu5yZBT"><span data-page-node-id="tUllaeyjfrfGHFFB8lPpVU"><span class="dot" style="background:var(--green);margin-right:8px;" data-page-node-id="PdOSIfJPjZnybqES87vXm7"></span>乙同学<span class="w" data-page-node-id="JXo3m7cr5F0DdYR3VYZm6o">陆行鸟 · 焦点正常</span></span><span class="rm" data-page-node-id="0DPvduMe3s9oP1JQKNEA2m">取消</span></div>
+          <div class="cond" data-page-node-id="x8h4fFxIrAdSGahSWrSsNc"><span data-page-node-id="yFTGxbFjinvLslgHyjHHTI"><span class="dot" style="background:#6a6f80;margin-right:8px;" data-page-node-id="f6UV0e2VCrGpwSIPnIEk7Z"></span>丙同学<span class="w" data-page-node-id="NEeeKLZdEaDCP6bD9ISAdm">未在附近</span></span><span class="rm" data-page-node-id="DRJ7Bv3yKAv6wFOPXwplja">取消</span></div>
+        </div>
+        <div class="ops" style="margin-top:10px;" data-page-node-id="eQ8K4lnANszpt3MVrIH1rA">
+          <button data-page-node-id="UOiNNbGT5MyERFRgzkzh2F">自动获取车头</button><button data-page-node-id="v1F8AopTccZPKUKgaL492g">+ 手动添加</button><button class="warn" data-page-node-id="wIFucBwAx6eKUvx4vJGgbj">全部取消车头</button>
+        </div>
+        <div class="note" style="margin-top:8px;" data-page-node-id="r2PtgGWrSvta9LJbVKIyNb">「自动获取车头」：读取队员招募 → 全部 → 怪物狩猎中的全部招募人并设为车头（去重）。</div>
+      </div>
+      <div class="panel" data-page-node-id="mEfI3pb2G3nO9a2F2DRbsN">
+        <div class="hd" data-page-node-id="vIoSrUPAaMbIRje2qsxY5n">功能开关</div>
+        <div class="row" data-page-node-id="9vgX28q4unPWpOhh7TI7Tx"><span data-page-node-id="mMDsyDMbwO0JWhXDdHOTKk">插件总开关</span><span class="sw on" data-page-node-id="aSI6JqvANmSDHJ6bzpfWVZ"><i data-page-node-id="iAGBvdqqzwBPvNAN7jVNof"></i></span></div>
+        <div class="row" data-page-node-id="Ele8B4MdnBopcykV8tpv8H"><span data-page-node-id="H57pOuysA1ouio3BlC5HBd">自动输出（/rotation Manual）</span><span class="sw on" data-page-node-id="2Ak5KQ0g3bWM6h4dF138T5"><i data-page-node-id="ceMiYEkazbt6x8bxXgVhhD"></i></span></div>
+        <div class="row" data-page-node-id="bo3v9Mar1JOPsQdyeOEnQk"><span data-page-node-id="VEljA8g6Tn7XF6W2E7A05A">自动切换副本区</span><span class="sw on" data-page-node-id="cg6SFxtbWrNuylseCccS52"><i data-page-node-id="xtKTrhE602S1G3MDzJhcid"></i></span></div>
+        <div class="row" data-page-node-id="5gzYwjZxwMGytJvevDDeEC"><span data-page-node-id="rX8hAx7MWkWOGO9nWo7CDX">包含 B 级狩猎怪<span class="sub" data-page-node-id="Gy66MbSzXLFRPUpkmUGh3B">默认仅锁定 A/S 级（游戏数据表判定，零误判）</span></span><span class="sw off" data-page-node-id="GTC8t3JI7NnSFHTkyzSufL"><i data-page-node-id="NiGyZoi87XQ7GjNLUN7dTw"></i></span></div>
+        <div class="row" data-page-node-id="k1FTOhR40CnPBcDJKerZ4e"><span data-page-node-id="YISUFUd6Hz3CDUFYmGwaLY">启用狩猎怪出生点辅助<span class="sub" data-page-node-id="RHjsG3dD2FmirIgrFUNdG3">车头坐标命中数据库出生点时，前往出生点等待并监控</span></span><span class="sw on" data-page-node-id="kCoIA9eQZi74oimscM7GOO"><i data-page-node-id="6UKd6nbFd9KGGeAIFEFDEw"></i></span></div>
+        <div class="row" data-page-node-id="dtjak89IGhj44nUMASJ47O"><span data-page-node-id="v8sWIDzTRaYGTEReAyGu3f">出生点匹配半径（米）</span><input type="range" min="30" max="300" value="100" data-page-node-id="MG0xNYcwM6hf8A9YwavVlw"></div>
+      </div>
+      <div class="panel" data-page-node-id="AAiaCHHQ4X5xcuD3UBH28P">
+        <div class="hd" data-page-node-id="yMY2udgGW6JVe4uj4EtC96">狩猎流程参数 <span class="r" data-page-node-id="mf4j6OqO37N3CiWBdm8fGA">点击标题可折叠</span></div>
+        <div class="row" data-page-node-id="xyGlBw4kZd5NaYS9Zc74XC"><span data-page-node-id="LiEVKGwvK3gQtPUayp0ZlV">传送距离阈值（米）</span><input type="range" min="10" max="300" value="100" data-page-node-id="YGimxOMBrJfM1QVHM27PXt"></div>
+        <div class="row" data-page-node-id="BGysWboE2kggpJaeUT6QFl"><span data-page-node-id="ALckcKb0KS85tRZL1uyV7V">悬停高度偏移（米）</span><input type="range" min="0" max="100" value="30" data-page-node-id="4nmGq10z6XAnMIHmtEA2jY"></div>
+        <div class="row" data-page-node-id="83Kp9fMf52vaDtuAQ7K3Et"><span data-page-node-id="8myiCpqTCsqJplswaej3sI">下坐骑血量（%）</span><input type="range" min="10" max="100" value="70" data-page-node-id="TMvbcI9YVj017Gk8j8Ws1A"></div>
+        <div class="row" data-page-node-id="BoGAPKaOZZWlMw6vsdDUv3"><span data-page-node-id="X3bK9GcFna0P0JHXs3gFF7">每击杀几只怪切换副本区</span><input type="range" min="1" max="10" value="2" data-page-node-id="rkpYiRdiBErgYQsIBXACCv"></div>
+        <div class="row" data-page-node-id="CF8FgP3ammqeywym4pnGns"><span data-page-node-id="PPmgcnRw9eO2mHigUEzXem">上坐骑寻路</span><span class="sw on" data-page-node-id="O9sTPRPDhQnOFnFLSlED1M"><i data-page-node-id="9AYb5Kva2RdBckZo2fYFCk"></i></span></div>
+        <div class="row" data-page-node-id="oiE5CAT2KFhwhegEEFiEFj"><span data-page-node-id="QNA6TwhyR4TScRk8agGnZl">指定坐骑名称（留空随机）</span><input type="text" value="" placeholder="留空使用随机坐骑" data-page-node-id="SbhJNOSuUszIJBSxqZ1F0Y"></div>
+      </div>
+    </div>
+
+    <!-- 招募 -->
+    <div class="pane" data-p="recruit" data-page-node-id="Vj5biTWqEgePJuCos8hzSQ">
+      <div class="panel" data-page-node-id="lnNYCfoAIAskzOdTyOYeaY">
+        <div class="row" data-page-node-id="eNQsGCSR5St7jpqC5WdkBA"><span data-page-node-id="VCYeis08E98vdfBXBnSxr4">启用一键创建队员招募<span class="sub" data-page-node-id="il7tt4JPgftEe6vAoVKH2G">启用后主窗口「创建怪物狩猎招募」按钮可用</span></span><span class="sw on" data-page-node-id="YRos55UT8CFDEfAjbR2Ma7"><i data-page-node-id="HxG4XlzhzorIoxBvfzSziE"></i></span></div>
+        <div class="row" data-page-node-id="lLQsncnBxuVkXE3oYkP14r"><span data-page-node-id="XC8SkjaxRxPQrX6xvg7rJt">启用创建招募时设置青魔占位<span class="sub" data-page-node-id="zp9JaOJxIQCnAcyxv1EaWG">自动设置青魔职业占位并限定平均品级 531</span></span><span class="sw off" data-page-node-id="mt1FWmcWzykyIBnOgCPjdp"><i data-page-node-id="leAH9jw0XzwkJ1cMsKwdUO"></i></span></div>
+        <div class="row" style="align-items:flex-start;" data-page-node-id="mbo0g07fKr02KgPOEnCCuB"><span data-page-node-id="yxKxiZMRwzCQEECPC763tV">队员招募自由留言</span><input type="text" value="来～直接来 车速快" style="min-width:280px;" data-page-node-id="XNHcZVxAJdnEJ1gMbJ95pX"></div>
+      </div>
+    </div>
+
+    <!-- 跨区 -->
+    <div class="pane" data-p="cross" data-page-node-id="1eWxqGDIbZdsyR60dWlwFP">
+      <div class="panel" data-page-node-id="AQEfa3i4frKs1MmixZfSkz">
+        <div class="row" data-page-node-id="1fkM9NM3CUDp4JjxI037Dy"><span data-page-node-id="BEQD3uDaBhwMF6KXiNjrvw">启用跨区功能<span class="sub" data-page-node-id="t3KEwG5Joj9XcKGHgs7yKM">取消车头 → 解散小队 → 传送城市 → 跨区 → 传送水晶 → 获取车头 → 开招募</span></span><span class="sw on" data-page-node-id="6la1GoipHckAC1GeRHT7Ny"><i data-page-node-id="VvkKVJCk6dLnklMVGFivGe"></i></span></div>
+        <div class="row" data-page-node-id="eWq3M4HrajetDjvC5rYSwP"><span data-page-node-id="alqM8VRhumGYnM7NbegsS9">跨区前传送到城市</span><select data-page-node-id="uXOw634lhrXnjG1mB0MrBu"><option data-page-node-id="DshPP4wVIqDgfGqR1Vta03">格里达尼亚新街</option><option data-page-node-id="AhOFbazT1z5pkKqVNUONcD">利姆萨·罗敏萨下层甲板</option><option data-page-node-id="Od2sJQDvQ9Es3zKv1Dd7gj">乌尔达哈现世回廊</option></select></div>
+        <div class="row" data-page-node-id="Xgd329waGkqameNAXKW4Ao"><span data-page-node-id="cmrCFwEJz55f8swl1WAX6c">跨区后传送到水晶</span><select data-page-node-id="Qzc8GwRm7UG8DlOHreVtGz"><option data-page-node-id="Jny3aDWmL8h7UK1RmLoUQ9">内丹（高地理图）</option><option data-page-node-id="WQprzMhDiV6DEACLu4MEyL">不传送</option></select></div>
+        <div class="row" data-page-node-id="KpSHysezwRVdeRfSwvMVUU"><span data-page-node-id="vf7mazJi3TW4jTOqHfTTc5">跨区完成后自动获取车头<span class="sub" data-page-node-id="6gvphOw0D2LfA3zJPn49Sg">传送水晶之后自动读取招募面板中的车头</span></span><span class="sw on" data-page-node-id="RD4eiJAkoUNuzrb5PylL1B"><i data-page-node-id="pgwDEe9CVTlgCrZUj0WgxY"></i></span></div>
+        <div class="row" data-page-node-id="S1l3fNti7qbQYCeTnrc9bP"><span data-page-node-id="f0VVzGaNJwjFwb50pOMZfn">自动取消车头<span class="sub" data-page-node-id="E64ACM6muMGVzAnEOdU6CJ">结束地图击杀满后自动取消全部车头并按跨区开关衔接跨区</span></span><span class="sw on amber" data-page-node-id="47i3jVx4MO8OEHR34e1OfB"><i data-page-node-id="fEC5jZ9opCxz1epPPzYYfm"></i></span></div>
+        <div class="row" data-page-node-id="nxtjgdA9dL5RPOUDHq5nyH"><span data-page-node-id="QdV4XTL3Cw8s0FD4VW6lYm">结束地图</span><select data-page-node-id="zTsTxTfbrSGwPhGqPeSeue"><option data-page-node-id="bz7HCiLVFmwMNXjKdwaC71">内丹（高地理图）</option><option data-page-node-id="E5zYWXEzUmdlWYxW6RYiGu">不传送（自动取消不生效）</option></select></div>
+        <div class="row" data-page-node-id="CVwv92CqQmp2IhnaRz75K9"><span data-page-node-id="KtR0yGUWZdNDyFVit2Asyn">自动开启招募<span class="sub" data-page-node-id="HvhuDjFRlBRwBquTmr0CYj">按「招募」页配置自动创建队员招募</span></span><span class="sw on" data-page-node-id="m4pC95iz3wDwdW2kRdVVXc"><i data-page-node-id="VIAcVKMtlPRvL0TCYEHb7u"></i></span></div>
+      </div>
+      <div class="panel" data-page-node-id="G5Adb8QHog3HDy21D4T9NL">
+        <div class="hd" data-page-node-id="vSzNnm69Ieee1pKnVIiUNC">狩猎时间表 <span class="r" data-page-node-id="wjE37g7nBnCi444g8xjfvz">取消车头后立即跨到「本地时间下一个」车次的服务器</span></div>
+        <table data-page-node-id="PBUEa5UVikxbUkxgR689XO">
+          <tr data-page-node-id="02Y08BwcZ9ujOjV6FnJeHM"><th style="width:90px" data-page-node-id="OjmdgpBYRxubYUlRChW9Yb">时间</th><th data-page-node-id="kbPfMVKeOn0OpZsG6K4AaC">大区（当前大区内服务器）</th><th style="width:60px" data-page-node-id="Kh9nFrCGyDsPdnniiuyaFQ">操作</th></tr>
+          <tr data-page-node-id="GNBCE98aEh6FTg1XPsXknJ"><td data-page-node-id="XQ5mx3iR1zrhxAlkWxBrcO"><input type="text" value="0930" style="width:70px" data-page-node-id="H2cBIkrrUY7AfaJzErEjln"></td><td data-page-node-id="d0E3agL9u0AXHSur3xcAHi"><select style="min-width:160px" data-page-node-id="JNI1pwaP66iJOVKKpSoOTm"><option data-page-node-id="vhCROF37QHCVDGVCGDI518">拉诺西亚</option></select></td><td data-page-node-id="90vZJ0vFlppcnfl7q8DZz0"><span style="color:#e08585;cursor:pointer" data-page-node-id="OZ728UGUVZXy7XBGT1DXio">删除</span></td></tr>
+          <tr data-page-node-id="3S5EbUkZdi4gqhDQOjZkIy"><td data-page-node-id="j1IPxPsn4ZiKGfMDV9QAvT"><input type="text" value="1300" style="width:70px" data-page-node-id="qAQmCwvYdhRjOFO1BeOy9O"></td><td data-page-node-id="H2hdlTb0ZVkzWBDUTqoQhR"><select style="min-width:160px" data-page-node-id="J7eXzdXxYSI10ZM0Fj2fQG"><option data-page-node-id="ktlSGadWJrAC3xyRlDw3iR">幻影群岛</option></select></td><td data-page-node-id="uh38GGcaEcMA3Wp0yO1wN1"><span style="color:#e08585;cursor:pointer" data-page-node-id="FGH5e2CeotkShFqXFuzOkZ">删除</span></td></tr>
+        </table>
+        <div class="ops" style="margin-top:10px;" data-page-node-id="HybQ9vANPp9VTOADsVHlcf"><button style="flex:0 0 150px;" data-page-node-id="oruPctWIDSLptUZq0xwi9L">新增车次</button></div>
+      </div>
+    </div>
+
+    <!-- 高级 -->
+    <div class="pane" data-p="adv" data-page-node-id="QyI4hbEClkDRzHFr5HtqLc">
+      <div class="panel" data-page-node-id="i6SJoWX8i9pET5Ji4Sy8Te">
+        <div class="row" data-page-node-id="Kv6twyGfT7umE7pTvLIO4H"><span data-page-node-id="QiLnKYC1HdZsdW5BkzIkgl">收到坐标时自动打开地图插旗</span><span class="sw on" data-page-node-id="McFTfTPeJYCAiRYfto5E6P"><i data-page-node-id="4ot5p37so3ogfexsB16cuC"></i></span></div>
+        <div class="row" data-page-node-id="c2ysICNCQdHPtukwDPUdRH"><span data-page-node-id="Iqb0jB1mernPvweFZuf6lq">解析纯文本坐标</span><span class="sw on" data-page-node-id="0tW0XrOLQmIhyGOHPwQ9pM"><i data-page-node-id="waao9xKfzhqmge9AyFDLx1"></i></span></div>
+        <div class="row" data-page-node-id="nLxVuhTjv4nEYj8PADj5o4"><span data-page-node-id="L8XozGDPpKa2AN7RhTHwMZ">使用 /vnav flyflag 飞向旗标（推荐）</span><span class="sw on" data-page-node-id="hCpWALZcL2tP4H9yRnvvBx"><i data-page-node-id="aa4SahX3WFwEoet5dunIYF"></i></span></div>
+        <div class="row" data-page-node-id="bys4DVx3guHbznsktLWxYq"><span data-page-node-id="FWZGSAbjdKEqGl2luHZUKu">飞旗命令</span><input type="text" value="/vnav flyflag" data-page-node-id="rf2lcDMg3Cidy3QIDxju2Q"></div>
+        <div class="row" data-page-node-id="7QPrubusHybQ52eXe5V7S9"><span data-page-node-id="zn41LYUx3gFKlfpMOevzlS">开始输出命令</span><input type="text" value="/rotation Manual" data-page-node-id="3ZCzODqAwEp7UIoEZGp20R"></div>
+        <div class="row" data-page-node-id="RV81MfDp9CZ4AAJCmtF5SX"><span data-page-node-id="rTLKra8jmziktLFEbnuHuG">停止输出命令</span><input type="text" value="/rotation off" data-page-node-id="8tJ6z4SeEz3IPa4STrmkZt"></div>
+        <div class="row" data-page-node-id="OT89qHeQnZJPVAjxV9i3gK"><span data-page-node-id="phMOQjagBDOgFAfgHTPLpy">调试模式</span><span class="sw off" data-page-node-id="sWb5E73uaOUHKHIcUPOZKY"><i data-page-node-id="Z7h5Wh40v6wkr5oVHUYiSn"></i></span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+<p class="foot" data-page-node-id="4XajVOYtA36t4R8NAmtDbI">原型示意 — 控件数据为示例；「当前操作条」状态由顶部按钮切换演示</p>
+
+<script>
+  // 标签页
+  document.querySelectorAll('#tabs span').forEach(t=>{
+    t.onclick=()=>{
+      document.querySelectorAll('#tabs span').forEach(x=>x.classList.remove('on'));
+      t.classList.add('on');
+      document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.dataset.p===t.dataset.p));
+    };
+  });
+  // 操作条状态演示
+  const OP={
+    cross:{cls:'st-cross',tag:'跨区',tagColor:'',txt:'传送到跨区后水晶',
+      steps:'<b class="done">✓解散小队</b><span class="sep">→</span><b class="done">✓传送城市</b><span class="sep">→</span><b class="done">✓跨区</b><span class="sep">→</span><b class="now">传送水晶</b><span class="sep">→</span><b class="wt">获取车头</b><span class="sep">→</span><b class="wt">开招募</b>'},
+    hunt:{cls:'st-hunt',tag:'狩猎',txt:'输出中 — [A] 长须豹（血量 45%）',steps:'<b class="wt">击杀 1/2</b>'},
+    fetch:{cls:'st-fetch',tag:'获取车头',txt:'读取招募列表（已获取 3 个）',steps:'<b class="wt">打开招募面板 → 筛选怪物狩猎 → 读取</b>'},
+    idle:{cls:'st-idle',tag:'空闲',txt:'等待车头坐标',steps:'<b class="wt">击杀 2/2 · 待切换 3 号区</b>'}
+  };
+  document.querySelectorAll('.demo-bar button').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('.demo-bar button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      const o=OP[b.dataset.op], el=document.getElementById('opstrip');
+      el.className='opstrip '+o.cls;
+      document.getElementById('op-tag').textContent=o.tag;
+      document.getElementById('op-txt').textContent=o.txt;
+      document.getElementById('op-steps').innerHTML=o.steps;
+    };
+  });
+  // 开关可点击演示
+  document.querySelectorAll('.sw').forEach(s=>{s.onclick=()=>s.classList.toggle('on')||s.classList.toggle('off');});
+</script>
+</body>
+</html>

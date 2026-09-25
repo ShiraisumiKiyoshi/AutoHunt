@@ -26,11 +26,12 @@ internal static class ChatMessageHandler
         if (P.Config == null || !P.Config.Enabled) return;
         if (!Conductor.IsValid) return;
 
+        var conductors = P.Config.Conductors;
         var localName = Player.Available ? Player.Object.Name.TextValue : "";
         // “自己即车头”模式：自己发出消息的聊天回显里，sender 往往不带世界服信息
         // （自己的名字不显示服务器）；用 /echo 自言自语时 sender 甚至完全为空。
         // 这些情况都不能被当成“非车头消息”丢弃，否则自己当车头发坐标永远不触发。
-        var selfMode = localName.Length > 0 && P.Config.ConductorName == localName;
+        var selfMode = localName.Length > 0 && conductors.Any(c => c.Name == localName);
 
         // 解析发送者：优先用 ECommons 解码，失败时回退到纯文本解析（“名字@世界服”或裸名字）
         string senderName = "";
@@ -48,37 +49,45 @@ internal static class ChatMessageHandler
             senderName = (at > 0 ? rawSender[..at] : rawSender).Trim();
         }
 
-        var nameMatch = senderName == P.Config.ConductorName;
-        if (!nameMatch)
+        // 多车头匹配：任一车头命中即通过（发送者名可能带“@世界服”后缀，剥离后比对）
+        bool NameMatches(string cName)
         {
-            // 解码结果可能带“@世界服”后缀，去掉后再比对一次
+            if (senderName == cName) return true;
             var at = senderName.LastIndexOf('@');
-            if (at > 0) nameMatch = senderName[..at].Trim() == P.Config.ConductorName;
+            return at > 0 && senderName[..at].Trim() == cName;
         }
-        if (!nameMatch)
+
+        // 自己即车头：sender 为空（/echo、部分系统回显）时视为本人消息
+        if (selfMode && senderName.IsNullOrEmpty())
         {
-            // 自己即车头：sender 为空（/echo、部分系统回显）时视为本人消息
-            if (selfMode && senderName.IsNullOrEmpty())
+            // 命中，继续走世界服校验（自己回显通常不带世界服，校验会跳过）
+        }
+        else if (!conductors.Any(c => NameMatches(c.Name)))
+        {
+            // 调试模式下低频打印非车头消息，方便排查“为什么没触发”
+            if (P.Config.Debug && EzThrottler.Throttle("WYDbgSender", 3000))
             {
-                nameMatch = true;
+                PluginLog.Debug($"[AutoHunt] 忽略非车头消息: \"{rawSender}\" ({cm.LogKind}): {GetText(cm)}");
             }
-            else
-            {
-                // 调试模式下低频打印非车头消息，方便排查“为什么没触发”
-                if (P.Config.Debug && EzThrottler.Throttle("WYDbgSender", 3000))
-                {
-                    PluginLog.Debug($"[AutoHunt] 忽略非车头消息: \"{rawSender}\" ({cm.LogKind}): {GetText(cm)}");
-                }
-                return;
-            }
+            return;
+        }
+        else
+        {
+            // 记录命中的车头条目用于世界服校验
+            selfMode = false;
         }
 
         // 世界服校验：仅当消息里确实携带世界服信息（senderWorld != 0）时才比对。
         // 自己发的消息回显通常不带世界服；带着比对会把“自己即车头”误杀。
-        if (!selfMode && P.Config.ConductorWorldId != 0 && senderWorld != 0 && senderWorld != P.Config.ConductorWorldId)
+        // 多车头：任一匹配名字的条目在世界服上通过即视为合法（条目 WorldId=0 表示不校验）。
+        if (!selfMode && senderWorld != 0)
         {
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 车头世界服不匹配: {senderWorld} != {P.Config.ConductorWorldId}");
-            return;
+            var worldOk = conductors.Any(c => NameMatches(c.Name) && (c.WorldId == 0 || c.WorldId == senderWorld));
+            if (!worldOk)
+            {
+                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 车头世界服不匹配: {senderWorld}");
+                return;
+            }
         }
 
         if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 收到车头消息 ({cm.LogKind}){(selfMode ? " [自己即车头]" : "")}: {GetText(cm)}");
