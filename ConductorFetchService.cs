@@ -201,6 +201,13 @@ public static unsafe class ConductorFetchService
         CurrentState = "";
     }
 
+    /// <summary>暂停恢复补偿：收集空闲判定基于 lastPacket 墙钟，把暂停时长补偿进去。</summary>
+    public static void CompensatePause(long pauseMs)
+    {
+        if (pauseMs <= 0 || lastPacket == DateTime.MinValue) return;
+        lastPacket += TimeSpan.FromMilliseconds(pauseMs);
+    }
+
     /// <summary>插件卸载兜底清理。</summary>
     public static void Dispose()
     {

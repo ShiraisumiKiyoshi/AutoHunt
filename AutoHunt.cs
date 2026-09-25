@@ -66,6 +66,9 @@ public unsafe class AutoHunt : IDalamudPlugin
     /// </summary>
     internal static bool Paused = false;
 
+    /// <summary>暂停开始的时刻（恢复时据此计算暂停时长，补偿各状态机的墙钟计时器）。</summary>
+    private static DateTime pausedAt = DateTime.MinValue;
+
     /// <summary>
     /// 总开关闸门：关闭时立即停止所有自动行为并清空操作队列（中止任务链、复位全部状态机、
     /// 停止寻路、取消招募监听），保证重新开启后处于干净的空闲状态、绝不继续之前被中断的流程。
@@ -81,6 +84,7 @@ public unsafe class AutoHunt : IDalamudPlugin
         masterSwitchArmed = false;
 
         Paused = false; // 总开关关闭 = 彻底复位，暂停态一并清除
+        pausedAt = DateTime.MinValue;
         TaskManager.Abort();
         CrossRegionController.Reset();
         HuntController.Reset();
@@ -115,8 +119,23 @@ public unsafe class AutoHunt : IDalamudPlugin
             // 不清空队列/状态机，恢复时从暂停点继续
             if (Paused)
             {
+                if (pausedAt == DateTime.MinValue) pausedAt = DateTime.Now;
                 if (!TaskManager.StepMode) TaskManager.StepMode = true;
                 return;
+            }
+
+            // 从暂停恢复：把暂停期间流逝的墙钟时间补偿给所有基于绝对时间的计时器，
+            // 否则任务链（60s 超时）与跨区阶段（120s 超时）会在暂停期间"被超时"，
+            // 导致恢复后流程被静默跳过（典型症状：获取车头阶段被跳过直接开招募）
+            if (pausedAt != DateTime.MinValue)
+            {
+                var pauseMs = (long)(DateTime.Now - pausedAt).TotalMilliseconds;
+                pausedAt = DateTime.MinValue;
+                if (TaskManager.IsBusy && TaskManager.RemainingTimeMS is > 0 and < int.MaxValue / 2)
+                    TaskManager.RemainingTimeMS += pauseMs; // 当前任务的超时线顺延（排队任务启动时会重新计时，无需处理）
+                CrossRegionController.CompensatePause(pauseMs);
+                ConductorFetchService.CompensatePause(pauseMs);
+                if (SwitchInProgress) SwitchStartTime += TimeSpan.FromMilliseconds(pauseMs);
             }
             if (TaskManager.StepMode) TaskManager.StepMode = false;
 

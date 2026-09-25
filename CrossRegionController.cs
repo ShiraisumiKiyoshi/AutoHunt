@@ -178,6 +178,18 @@ internal static class CrossRegionController
         hadParty = false;
     }
 
+    /// <summary>
+    /// 暂停恢复补偿：把暂停时长加到各阶段的墙钟计时起点上，
+    /// 避免暂停期间流逝的时间被误判为阶段超时（否则恢复后阶段会被静默跳过）。
+    /// </summary>
+    internal static void CompensatePause(long pauseMs)
+    {
+        if (pauseMs <= 0) return;
+        var ts = TimeSpan.FromMilliseconds(pauseMs);
+        if (stepStart != DateTime.MinValue) stepStart += ts;
+        if (citySince != DateTime.MinValue) citySince += ts;
+    }
+
     public static void Update()
     {
         if (phase == Phase.Inactive) return;
@@ -518,9 +530,18 @@ internal static class CrossRegionController
         }
 
         // 获取车头占用 TaskManager，等它跑完即进入下一阶段；超时 120 秒兜底
-        if ((!P.TaskManager.IsBusy && !ConductorFetchService.Running)
-            || (DateTime.Now - stepStart).TotalSeconds > 120)
+        // （超时时必须强制 Cancel：若任务链早已被 TaskManager 超时中止，Finish 不会执行，
+        //   Running 会卡在 true，之后所有获取车头都会被"正在获取车头"拒绝）
+        var busy = P.TaskManager.IsBusy || ConductorFetchService.Running;
+        if (!busy)
         {
+            phase = Phase.CreatePF;
+            stepStart = DateTime.Now;
+        }
+        else if ((DateTime.Now - stepStart).TotalSeconds > 120)
+        {
+            Notify.Warning("跨区：自动获取车头超时，跳过并继续后续流程。");
+            ConductorFetchService.Cancel();
             phase = Phase.CreatePF;
             stepStart = DateTime.Now;
         }
