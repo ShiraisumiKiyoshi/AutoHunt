@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoHunt v2.4.0 — MissFisher 风格原型图</title>
+<style>
+  :root{
+    --bg:#0b1118;
+    --win:#111823;
+    --win2:#0d141d;
+    --card:rgba(255,255,255,.045);
+    --card2:rgba(255,255,255,.07);
+    --line:rgba(255,255,255,.09);
+    --line2:rgba(255,255,255,.16);
+    --txt:#e8edf4;
+    --sub:#8b96a5;
+    --accent:#4cc2ff;
+    --green:#3ddc84;
+    --amber:#ffc24b;
+    --red:#ff6b6b;
+    --purple:#b78bff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  svg.ico{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;display:block}
+  body{
+    background:#05080c;
+    font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+    color:var(--txt);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:28px;
+    background-image:radial-gradient(1200px 600px at 50% -10%,#16222f 0%,#05080c 60%);
+  }
+  .demo-note{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#5b6878;font-size:12px;letter-spacing:1px}
+
+  /* ===== 窗口骨架（MissFisher 风格） ===== */
+  .win{
+    width:920px;height:640px;
+    background:linear-gradient(180deg,rgba(23,32,44,.97),rgba(13,19,27,.98));
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.06);
+    display:flex;flex-direction:column;overflow:hidden;
+    backdrop-filter:blur(18px);
+  }
+  /* 标题栏 */
+  .titlebar{
+    height:46px;display:flex;align-items:center;flex-shrink:0;
+    padding:0 14px;position:relative;border-bottom:1px solid transparent;
+  }
+  .tb-left{display:flex;gap:8px}
+  .tb-title{
+    position:absolute;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:#dfe7f0;
+  }
+  .tb-title .dot{width:18px;height:18px;border-radius:50%;
+    background:conic-gradient(from 200deg,#ff9d45,#ffd166,#4cc2ff,#b78bff,#ff9d45);
+    box-shadow:0 0 8px rgba(255,157,69,.4)}
+  .tb-right{margin-left:auto;display:flex;gap:6px}
+  .icobtn{
+    width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    color:#aeb9c6;cursor:pointer;font-size:14px;transition:.15s;
+  }
+  .icobtn:hover{background:var(--card2);color:#fff}
+
+  .body{flex:1;display:flex;min-height:0}
+
+  /* ===== 左侧导航 ===== */
+  .side{
+    width:172px;flex-shrink:0;display:flex;flex-direction:column;
+    padding:6px 10px 12px;
+  }
+  .side .top{display:flex;align-items:center;gap:10px;padding:8px 8px 14px}
+  .avatar{
+    width:40px;height:40px;border-radius:50%;flex-shrink:0;
+    background:linear-gradient(135deg,#2a3a4e,#16202c);
+    border:1px solid var(--line2);
+    display:flex;align-items:center;justify-content:center;font-size:19px;
+  }
+  .side .top .who{line-height:1.25}
+  .side .top .who b{font-size:13.5px;display:block}
+  .side .top .who span{font-size:11.5px;color:var(--sub)}
+  .nav{
+    display:flex;align-items:center;gap:11px;
+    padding:10px 13px;border-radius:12px;cursor:pointer;
+    color:#b9c3cf;font-size:14px;margin-bottom:4px;
+    border:1px solid transparent;transition:.15s;user-select:none;
+  }
+  .nav:hover{background:var(--card)}
+  .nav.active{
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.55);
+    color:#fff;font-weight:600;
+    box-shadow:0 0 0 1px rgba(0,0,0,.3) inset;
+  }
+  .nav .ni{width:19px;text-align:center;font-size:15px}
+  .side .sep{height:1px;background:var(--line);margin:10px 6px}
+  .side .fill{flex:1}
+
+  /* ===== 主内容区 ===== */
+  .main{flex:1;min-width:0;overflow-y:auto;padding:10px 18px 14px 6px}
+  .main::-webkit-scrollbar{width:9px}
+  .main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:5px}
+  .page{display:none;animation:fade .18s ease}
+  .page.show{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+  /* 头部大卡 */
+  .hero{
+    display:flex;align-items:center;gap:16px;
+    background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:16px 18px;margin-bottom:14px;
+  }
+  .hero .appicon{
+    width:64px;height:64px;border-radius:14px;flex-shrink:0;
+    background:linear-gradient(140deg,#ff9d45,#ffcf5c 55%,#ff8d5c);
+    display:flex;align-items:center;justify-content:center;font-size:32px;
+    box-shadow:0 6px 18px rgba(255,140,60,.28);
+  }
+  .hero h1{font-size:20px;letter-spacing:.5px}
+  .hero p{color:var(--sub);font-size:12.5px;margin-top:4px}
+
+  /* 操作行 */
+  .actions{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .btn-main{
+    display:flex;align-items:center;border-radius:24px;overflow:hidden;
+    border:1px solid rgba(255,255,255,.35);cursor:pointer;transition:.15s;user-select:none;
+  }
+  .btn-main:hover{background:rgba(255,255,255,.08)}
+  .btn-main .lab{padding:9px 20px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .btn-main .div{width:1px;align-self:stretch;background:rgba(255,255,255,.3)}
+  .btn-main .car{padding:9px 13px;font-size:11px;color:#cfd8e2}
+  .btn-ghost{
+    padding:9px 18px;border-radius:22px;border:1px solid var(--line2);
+    background:transparent;color:#dfe7f0;font-size:13.5px;cursor:pointer;transition:.15s;
+    display:flex;align-items:center;gap:8px;user-select:none;
+  }
+  .btn-ghost:hover{background:var(--card2)}
+  .btn-ghost.warn{color:#ffb0b0;border-color:rgba(255,107,107,.45)}
+  .spacer{flex:1}
+
+  /* 行式卡片（MissFisher 目标行风格） */
+  .rowcard{
+    display:flex;align-items:center;gap:13px;
+    background:var(--card);border:1px solid var(--line);
+    border-radius:15px;padding:11px 16px;margin-bottom:9px;
+  }
+  .rowcard .ric{
+    width:38px;height:38px;border-radius:10px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:19px;
+    background:rgba(255,255,255,.06);border:1px solid var(--line);
+  }
+  .rowcard .rt{flex:1;min-width:0}
+  .rowcard .rt b{font-size:14.5px;display:block}
+  .rowcard .rt span{font-size:12px;color:var(--sub)}
+  .rowcard .rend{font-size:14.5px;font-weight:600;color:#e6edf5;white-space:nowrap}
+  .rowcard.ok{border-color:rgba(61,220,132,.35)}
+  .rowcard.warn{border-color:rgba(255,194,75,.4)}
+  .rowcard.bad{border-color:rgba(255,107,107,.55);box-shadow:0 0 0 1px rgba(255,107,107,.15)}
+  .tag{font-size:11px;padding:2.5px 9px;border-radius:9px;font-weight:600;white-space:nowrap}
+  .tag.g{background:rgba(61,220,132,.14);color:var(--green)}
+  .tag.a{background:rgba(255,194,75,.14);color:var(--amber)}
+  .tag.r{background:rgba(255,107,107,.14);color:var(--red)}
+  .tag.c{background:rgba(76,194,255,.14);color:var(--accent)}
+  .tag.p{background:rgba(183,139,255,.16);color:var(--purple)}
+
+  /* 开关行 */
+  .tglrow{display:flex;align-items:center;gap:12px;padding:9px 16px}
+  .tglrow .tt{flex:1;min-width:0}
+  .tglrow .tt b{font-size:13.5px;display:block;font-weight:600}
+  .tglrow .tt span{font-size:11.5px;color:var(--sub)}
+  .switch{
+    width:42px;height:23px;border-radius:12px;background:rgba(255,255,255,.16);
+    position:relative;cursor:pointer;transition:.18s;flex-shrink:0;border:1px solid rgba(255,255,255,.12);
+  }
+  .switch::after{
+    content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;
+    background:#e9eef4;transition:.18s;
+  }
+  .switch.on{background:#2e9e63}
+  .switch.on::after{left:21px}
+
+  /* 区块标题 */
+  .sect{font-size:12px;color:var(--sub);letter-spacing:2px;margin:14px 2px 8px;font-weight:600}
+
+  /* 时间表 */
+  .sched{font-family:Consolas,monospace}
+
+  /* ===== 底部状态栏 ===== */
+  .bottombar{
+    height:62px;flex-shrink:0;display:flex;align-items:center;gap:10px;
+    padding:0 14px;border-top:1px solid var(--line);
+  }
+  .bb-icobtn{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    color:#aeb9c6;cursor:pointer;font-size:15px}
+  .bb-icobtn:hover{background:var(--card2);color:#fff}
+  .bb-status{
+    flex:1;display:flex;align-items:center;gap:11px;
+    background:var(--card);border:1px solid var(--line);border-radius:13px;
+    padding:7px 14px;margin:0 6px;min-width:0;
+  }
+  .bb-status .st-ic{width:32px;height:32px;border-radius:9px;flex-shrink:0;
+    background:linear-gradient(135deg,#31435a,#1a2531);display:flex;align-items:center;justify-content:center;font-size:16px}
+  .bb-status b{font-size:13.5px;display:block}
+  .bb-status span{font-size:11.5px;color:var(--sub);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bb-play{
+    width:44px;height:44px;border-radius:50%;border:1.5px solid rgba(255,255,255,.45);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:#fff;transition:.15s;
+  }
+  .bb-play:hover{background:rgba(255,255,255,.08)}
+  .bb-stop{
+    width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;color:#cfd8e2;font-size:14px}
+  .bb-stop:hover{background:var(--card2)}
+
+  /* 指标卡（主页） */
+  .metrics{display:flex;gap:10px;margin-bottom:14px}
+  .metric{
+    flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 15px;
+  }
+  .metric span{font-size:11.5px;color:var(--sub);display:block;margin-bottom:5px}
+  .metric b{font-size:17px}
+</style>
+</head>
+<body>
+<div class="demo-note">AutoHunt v2.4.0 界面原型 · MissFisher 风格 · 仅视觉演示，未改动任何功能代码</div>
+
+<!-- 图标库（Lucide 风格线性描边图标） -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-chl" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chr" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9.5 12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22v-8h6v8"/></symbol>
+  <symbol id="i-cross" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="1.5"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+  <symbol id="i-skull" viewBox="0 0 24 24"><path d="M8 20v2h8v-2"/><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="m12 12 6.36-6.36"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></symbol>
+  <symbol id="i-mega" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05"/><path d="M12 22.08V12"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0 0 20c1.5 0 2-1 2-2s-.8-1.4-.8-2.3c0-1 .8-1.7 2-1.7H18a4 4 0 0 0 4-4c0-5-4.5-8-10-8z"/><circle cx="6.5" cy="11.5" r="1"/><circle cx="9.5" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/><circle cx="17.5" cy="11.5" r="1"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-thumb" viewBox="0 0 24 24"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></symbol>
+</svg>
+
+<div class="win">
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="tb-left">
+      <div class="icobtn"><svg class="ico" width="15" height="15"><use href="#i-chl"/></svg></div>
+      <div class="icobtn"><svg class="ico" width="15" height="15"><use href="#i-chr"/></svg></div>
+    </div>
+    <div class="tb-title"><span class="dot"></span>待机中</div>
+    <div class="tb-right">
+      <div class="icobtn"><svg class="ico" width="15" height="15"><use href="#i-search"/></svg></div>
+      <div class="icobtn"><svg class="ico" width="15" height="15"><use href="#i-gear"/></svg></div>
+      <div class="icobtn"><svg class="ico" width="15" height="15"><use href="#i-minus"/></svg></div>
+      <div class="icobtn"><svg class="ico" width="15" height="15"><use href="#i-x"/></svg></div>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- 左侧导航 -->
+    <div class="side">
+      <div class="top">
+        <div class="avatar"><svg class="ico" width="20" height="20" style="stroke-width:1.8"><use href="#i-target"/></svg></div>
+        <div class="who"><b>AutoHunt</b><span>v2.4.0 · 已激活</span></div>
+      </div>
+      <div class="nav active" data-p="home"><span class="ni"><svg class="ico" width="17" height="17" style="margin:0 auto"><use href="#i-home"/></svg></span>主页</div>
+      <div class="nav" data-p="hunt"><span class="ni"><svg class="ico" width="17" height="17" style="margin:0 auto"><use href="#i-cross"/></svg></span>狩猎</div>
+      <div class="nav" data-p="recruit"><span class="ni"><svg class="ico" width="17" height="17" style="margin:0 auto"><use href="#i-clip"/></svg></span>招募</div>
+      <div class="nav" data-p="cross"><span class="ni"><svg class="ico" width="17" height="17" style="margin:0 auto"><use href="#i-globe"/></svg></span>跨区</div>
+      <div class="nav" data-p="adv"><span class="ni"><svg class="ico" width="17" height="17" style="margin:0 auto"><use href="#i-gear"/></svg></span>高级</div>
+      <div class="sep"></div>
+      <div class="nav" data-p="adv"><span class="ni"><svg class="ico" width="17" height="17" style="margin:0 auto"><use href="#i-pen"/></svg></span>编辑器</div>
+      <div class="fill"></div>
+    </div>
+
+    <!-- 主内容 -->
+    <div class="main">
+
+      <!-- ===== 主页 ===== -->
+      <div class="page show" id="p-home">
+        <div class="hero">
+          <div class="appicon"><svg class="ico" width="30" height="30" style="stroke-width:1.7"><use href="#i-target"/></svg></div>
+          <div>
+            <h1>自动狩猎车助手</h1>
+            <p>解析车头坐标 · 自动传送 · 副本区切换 · 血量阈值自动输出</p>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>车头</span><b style="color:var(--green)">1 人在线</b></div>
+          <div class="metric"><span>本区击杀</span><b style="color:var(--amber)">2 / 2 已满</b></div>
+          <div class="metric"><span>副本区</span><b>3 / 3</b></div>
+          <div class="metric"><span>狩猎怪库</span><b>207 只</b></div>
+        </div>
+        <div class="actions">
+          <div class="btn-main"><span class="lab"><svg class="ico" width="14" height="14"><use href="#i-play"/></svg>启动狩猎</span><span class="div"></span><span class="car"><svg class="ico" width="12" height="12"><use href="#i-chd"/></svg></span></div>
+          <div class="btn-ghost"><svg class="ico" width="15" height="15"><use href="#i-thumb"/></svg>自动获取车头</div>
+          <div class="btn-ghost warn"><svg class="ico" width="14" height="14"><use href="#i-x"/></svg>全部取消车头</div>
+          <div class="spacer"></div>
+          <div class="icobtn" style="border:1px solid var(--line);border-radius:10px"><svg class="ico" width="15" height="15"><use href="#i-search"/></svg></div>
+        </div>
+
+        <div class="sect">当前目标</div>
+        <div class="rowcard ok">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--green)"><use href="#i-skull"/></svg></div>
+          <div class="rt"><b>纳达鲁·狂怒</b><span>A 级 · 基拉巴尼亚湖区 ( 12.3 , 34.5 )</span></div>
+          <div class="rend" style="color:var(--green)">监控中 · 62%</div>
+        </div>
+        <div class="sect">下一个目标</div>
+        <div class="rowcard">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--amber)"><use href="#i-flame"/></svg></div>
+          <div class="rt"><b>奥兹MAL</b><span>S 级 · 只读预设</span></div>
+          <div class="rend">35m 后刷新</div>
+        </div>
+        <div class="sect">状态提醒</div>
+        <div class="rowcard warn">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--amber)"><use href="#i-alert"/></svg></div>
+          <div class="rt"><b>本区击杀已满</b><span>等待副本区切换（自动 · 每击杀 2 只）</span></div>
+          <div class="tag a">切换中</div>
+        </div>
+      </div>
+
+      <!-- ===== 狩猎 ===== -->
+      <div class="page" id="p-hunt">
+        <div class="sect">车头（1）— 任一车头发送坐标都会触发狩猎</div>
+        <div class="rowcard ok">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--accent)"><use href="#i-user"/></svg></div>
+          <div class="rt"><b>光之战神</b><span>陆行鸟 · 拉诺西亚 · 在附近</span></div>
+          <div class="tag g">焦点保持</div>
+          <div class="btn-ghost warn" style="padding:5px 14px;font-size:12px">取消</div>
+        </div>
+        <div class="actions" style="margin-top:10px">
+          <div class="btn-ghost"><svg class="ico" width="13" height="13"><use href="#i-plus"/></svg>手动添加车头</div>
+          <div class="btn-ghost warn">全部取消</div>
+        </div>
+        <div class="sect">流程开关</div>
+        <div class="rowcard" style="padding:4px 6px">
+          <div style="flex:1">
+            <div class="tglrow"><div class="tt"><b>自动输出（/rotation Manual）</b><span>血量到达阈值后下坐骑并开始输出</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>自动切换副本区</b><span>每击杀 2 只自动切换，共 3 个副本区</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>包含 B 级狩猎怪</b><span>仅锁定 A / S 级（游戏数据表判定，零误判）</span></div><div class="switch"></div></div>
+            <div class="tglrow"><div class="tt"><b>启用狩猎怪出生点辅助</b><span>车头坐标命中数据库出生点时，前往出生点等待并监控</span></div><div class="switch on"></div></div>
+          </div>
+        </div>
+        <div class="sect">地图狩猎怪扫描</div>
+        <div class="rowcard">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--accent)"><use href="#i-radar"/></svg></div>
+          <div class="rt"><b>上次扫描 16:07:24</b><span>存活 3 只 / 共 3 只 · 每秒自动刷新</span></div>
+          <div class="tag c">扫描中</div>
+        </div>
+      </div>
+
+      <!-- ===== 招募 ===== -->
+      <div class="page" id="p-recruit">
+        <div class="sect">一键创建怪物狩猎招募</div>
+        <div class="rowcard">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--accent)"><use href="#i-file"/></svg></div>
+          <div class="rt"><b>招募文案</b><span>自动填充狩猎目标与剩余数量</span></div>
+          <div class="tag c">已配置</div>
+        </div>
+        <div class="rowcard" style="padding:4px 6px">
+          <div style="flex:1">
+            <div class="tglrow"><div class="tt"><b>启用一键创建队员招募</b><span>主界面按钮触发</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>启用创建招募时设置青魔占位</b><span>招募备注中加入青魔占位提示</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>跨区完成后自动开启招募</b><span>按本页配置自动创建</span></div><div class="switch"></div></div>
+          </div>
+        </div>
+        <div class="sect">招募效果预览</div>
+        <div class="rowcard ok">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--green)"><use href="#i-mega"/></svg></div>
+          <div class="rt"><b>[怪物狩猎] A级 纳达鲁·狂怒</b><span>青魔占位 2 / 自由留言：来人打A 死了不怪</span></div>
+          <div class="tag g">1/8 人</div>
+        </div>
+      </div>
+
+      <!-- ===== 跨区 ===== -->
+      <div class="page" id="p-cross">
+        <div class="sect">跨区流程</div>
+        <div class="rowcard" style="padding:4px 6px">
+          <div style="flex:1">
+            <div class="tglrow"><div class="tt"><b>启用跨区功能</b><span>取消车头 → 解散小队 → 传送城市 → 跨区 → 传送水晶 →（可选）获取车头 →（可选）开招募</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>跨区完成后自动获取车头</b><span>读取队员招募-怪物狩猎中的招募人并设为车头</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>自动取消车头（结束地图击杀满后）</b><span>结束地图击杀满时全清并衔接跨区</span></div><div class="switch"></div></div>
+          </div>
+        </div>
+        <div class="sect">狩猎时间表 — 到达城市后立即跨往下一车次</div>
+        <div class="rowcard sched">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--purple)"><use href="#i-clock"/></svg></div>
+          <div class="rt"><b>21:00 → 陆行鸟 · 神意之地</b><span>下一车次 · 约 2h 35m 后</span></div>
+          <div class="tag g">下一车</div>
+          <div class="btn-ghost warn" style="padding:5px 14px;font-size:12px">删除</div>
+        </div>
+        <div class="rowcard sched">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--purple)"><use href="#i-clock"/></svg></div>
+          <div class="rt"><b>23:00 → 陆行鸟 · 拉诺西亚</b><span>今日后续车次</span></div>
+          <div class="btn-ghost warn" style="padding:5px 14px;font-size:12px">删除</div>
+        </div>
+        <div class="rowcard sched">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--purple)"><use href="#i-clock"/></svg></div>
+          <div class="rt"><b>01:00 → 陆行鸟 · 幻影群岛</b><span>今日后续车次</span></div>
+          <div class="btn-ghost warn" style="padding:5px 14px;font-size:12px">删除</div>
+        </div>
+        <div class="actions" style="margin-top:8px">
+          <div class="btn-ghost"><svg class="ico" width="13" height="13"><use href="#i-plus"/></svg>添加时间表行</div>
+        </div>
+      </div>
+
+      <!-- ===== 高级 ===== -->
+      <div class="page" id="p-adv">
+        <div class="sect">界面</div>
+        <div class="rowcard" style="padding:4px 6px">
+          <div style="flex:1">
+            <div class="tglrow"><div class="tt"><b>显示悬浮窗</b><span>屏幕上显示当前操作，点击打开设置，可拖动</span></div><div class="switch on"></div></div>
+            <div class="tglrow"><div class="tt"><b>调试模式</b><span>聊天日志输出详细匹配信息</span></div><div class="switch"></div></div>
+          </div>
+        </div>
+        <div class="sect">命令</div>
+        <div class="rowcard">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--sub)"><use href="#i-kbd"/></svg></div>
+          <div class="rt"><b>飞旗命令</b><span>/vnav flyflag</span></div>
+          <div class="tag c">vnavmesh</div>
+        </div>
+        <div class="rowcard">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--sub)"><use href="#i-kbd"/></svg></div>
+          <div class="rt"><b>开始 / 停止输出命令</b><span>/rotation Manual · /rotation Off</span></div>
+        </div>
+        <div class="sect">数据</div>
+        <div class="rowcard">
+          <div class="ric"><svg class="ico" width="19" height="19" style="margin:0 auto;color:var(--green)"><use href="#i-box"/></svg></div>
+          <div class="rt"><b>出生点数据库</b><span>219 只怪 · 3196 个出生点（内置于插件）</span></div>
+          <div class="tag g">已加载</div>
+        </div>
+      </div>
+
+    </div><!-- /main -->
+  </div><!-- /body -->
+
+  <!-- 底部状态栏 -->
+  <div class="bottombar">
+    <div class="bb-icobtn"><svg class="ico" width="16" height="16"><use href="#i-chl"/></svg></div>
+    <div class="bb-icobtn"><svg class="ico" width="16" height="16"><use href="#i-gear"/></svg></div>
+    <div class="bb-icobtn"><svg class="ico" width="16" height="16"><use href="#i-palette"/></svg></div>
+    <div class="bb-status">
+      <div class="st-ic"><svg class="ico" width="17" height="17" style="stroke-width:1.8"><use href="#i-target"/></svg></div>
+      <div style="flex:1;min-width:0">
+        <b>AutoHunt</b>
+        <span id="bb-state">待机中 — 等待车头坐标</span>
+      </div>
+      <div class="tag p">跨区关闭</div>
+    </div>
+    <div class="bb-play"><svg class="ico" width="17" height="17" style="margin-left:2px"><use href="#i-play"/></svg></div>
+    <div class="bb-stop"><svg class="ico" width="14" height="14" style="fill:currentColor"><use href="#i-stop"/></svg></div>
+  </div>
+</div>
+
+<script>
+  // 导航切换
+  document.querySelectorAll('.nav[data-p]').forEach(function(n){
+    n.addEventListener('click',function(){
+      document.querySelectorAll('.nav').forEach(function(x){x.classList.remove('active')});
+      n.classList.add('active');
+      document.querySelectorAll('.page').forEach(function(p){p.classList.remove('show')});
+      document.getElementById('p-'+n.dataset.p).classList.add('show');
+    });
+  });
+  // 开关演示
+  document.querySelectorAll('.switch').forEach(function(s){
+    s.addEventListener('click',function(){s.classList.toggle('on')});
+  });
+  // 主启动按钮：演示底部状态变化
+  var running=false;
+  document.querySelector('.bb-play').addEventListener('click',function(){
+    running=!running;
+    document.getElementById('bb-state').textContent = running
+      ? '狩猎中 — 监控目标：纳达鲁·狂怒 ( 62% )'
+      : '待机中 — 等待车头坐标';
+    document.querySelector('.tb-title').childNodes[1].textContent = running ? '狩猎中' : '待机中';
+  });
+</script>
+</body>
+</html>
