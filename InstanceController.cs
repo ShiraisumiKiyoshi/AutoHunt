@@ -13,6 +13,7 @@ internal static unsafe class InstanceController
 {
     private static bool pendingEnsureInstanceOne = false;
     private static readonly HashSet<uint> ensuredTerritories = new();
+    private static uint lastWorldId = 0; // 检测换服（跨区/回本区）：换服后"首次进图保证1号区"需对所有地图重新生效
 
     /// <summary>参与过（正在打/打过）的怪物</summary>
     private static readonly HashSet<ulong> engagedMobIds = new();
@@ -143,6 +144,19 @@ internal static unsafe class InstanceController
         // GetInstanceCount 依赖其"学习"的地图数据，未学习过的地图返回 0，不可靠）
         if (P.Config.Enabled && P.Config.AutoInstance && EzThrottler.Throttle("WYEnsureScan", 1000))
         {
+            // 换服检测：地图 ID 全大区通用，跨区后 ensuredTerritories 里的记录
+            // 会让"首次进图保证 1 号区"被误跳过（本区去过 ≠ 新区去过）→ 换服即清空重新判定
+            if (Player.Available)
+            {
+                var wid = Player.Object.CurrentWorld.RowId;
+                if (wid != 0 && wid != lastWorldId)
+                {
+                    lastWorldId = wid;
+                    ensuredTerritories.Clear();
+                    if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 检测到换服（WorldId={wid}），已重置各地图的首次进图副本区保证记录");
+                }
+            }
+
             var territory = Svc.ClientState.TerritoryType;
             if (territory != 0 && !ensuredTerritories.Contains(territory) && IsInstancedAreaNow())
             {
