@@ -175,9 +175,9 @@ public class MainWindow : ConfigWindow
         var w = ImGui.GetWindowSize().X;
         dl.AddLine(new(p.X, p.Y + TitleH - 1), new(p.X + w, p.Y + TitleH - 1), ColLine);
 
-        // 左侧：版本
+        // 左侧：版本（读程序集版本，随 csproj 升版自动更新）
         ImGui.SetCursorPos(new Vector2(16, (TitleH - ImGui.GetTextLineHeight()) / 2));
-        ImGui.TextColored(ColSub, $"AutoHunt v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "2.4.0"}");
+        ImGui.TextColored(ColSub, $"AutoHunt v{typeof(MainWindow).Assembly.GetName().Version}");
 
         // 中间：状态点 + 状态文字
         var (kind, tag, _) = OperationTracker.CurrentParts;
