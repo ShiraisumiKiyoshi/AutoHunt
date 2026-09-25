@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.4",
+    "AssemblyVersion": "2.4.0.5",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.4.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.4.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.4.zip",
-    "LastUpdate": 1790333211,
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.5.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.5.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.5.zip",
+    "LastUpdate": 1790333857,
     "Changelog": "v2.4.0.0 MissFisher 风格 UI 改版；修复更新包"
   }
 ]

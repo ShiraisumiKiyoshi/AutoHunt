@@ -341,14 +341,14 @@ public class MainWindow : ConfigWindow
         RowBegin(86f);
         {
             var dl = ImGui.GetWindowDrawList();
-            var p = ImGui.GetWindowPos();
+            var p = rowRectMin;
             var ic = new Vector2(56, 56);
             var ip = new Vector2(16, (86 - ic.Y) / 2);
             dl.AddRectFilled(p + ip, p + ip + ic, C(255, 157, 69, 255), 14f);
             DrawIconCentered(IcTarget, p + ip, ic, 0xFFFFFFFFu, 1.1f);
-            ImGui.SetCursorPos(new(ip.X + ic.X + 14, 16));
+            ImGui.SetCursorScreenPos(p + new Vector2(ip.X + ic.X + 14, 16));
             ImGui.TextUnformatted("自动狩猎车助手");
-            ImGui.SetCursorPos(new(ip.X + ic.X + 14, 44));
+            ImGui.SetCursorScreenPos(p + new Vector2(ip.X + ic.X + 14, 44));
             ImGui.TextColored(ColSub, "解析车头坐标 · 自动传送 · 副本区切换 · 血量阈值自动输出");
         }
         RowEnd();
@@ -449,21 +449,27 @@ public class MainWindow : ConfigWindow
 
     private void MetricCard(float width, string label, bool? online, string value, uint valueCol)
     {
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, ColCard);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
-        ImGui.BeginChild("##mc" + rowCounter++, new Vector2(width, 58f), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
-        ImGui.SetCursorPosY(9);
-        ImGui.TextColored(ColSub, label);
-        ImGui.SetCursorPosY(28);
+        // 纯 drawlist 绘制（不用子窗口），末尾注册等大占位项以支持 SameLine 横排
+        var min = ImGui.GetCursorScreenPos();
+        var max = min + new Vector2(width, 58f);
+        var dl = ImGui.GetWindowDrawList();
+        dl.AddRectFilled(min, max, ColCard, 14f);
+
+        var fs = ImGui.GetFontSize();
+        var font = ImGui.GetFont();
+        dl.AddText(font, fs, new(min.X + 14, min.Y + 9), ColSub, label);
+        var vy = min.Y + 30;
+        var vx = min.X + 14;
         if (online.HasValue)
         {
-            ImGui.TextColored(online.Value ? ColGreen : ColGray, online.Value ? "●" : "○");
-            ImGui.SameLine(0, 6);
+            var dot = online.Value ? "●" : "○";
+            dl.AddText(font, fs, new(vx, vy), online.Value ? ColGreen : ColGray, dot);
+            vx += ImGui.CalcTextSize(dot).X + 6;
         }
-        ImGui.TextColored(valueCol, value);
-        ImGui.EndChild();
-        ImGui.PopStyleVar();
-        ImGui.PopStyleColor();
+        dl.AddText(font, fs, new(vx, vy), valueCol, value);
+
+        ImGui.SetCursorScreenPos(min);
+        ImGui.Dummy(new Vector2(width, 58f));
     }
 
     /// <summary>胶囊主按钮：左半切换总开关，右侧 ▼ 弹出快捷操作菜单。</summary>
@@ -745,13 +751,14 @@ public class MainWindow : ConfigWindow
     private void ScheduleRow(CrossRegionScheduleEntry e, bool isNext)
     {
         RowBegin(50f, border: isNext ? C(61, 220, 132, 110) : null);
-        var avail = ImGui.GetContentRegionAvail().X - RightPad;
+        var id = rowId; // 控件 ID 去重（无子窗口后同一父窗口内需唯一）
+        var avail = rowRectMax.X - 14f - ImGui.GetCursorScreenPos().X - RightPad;
         var delW = ImGui.CalcTextSize("删除").X + 40f;
 
         if (isNext) ImGui.PushStyleColor(ImGuiCol.Text, ColGreen);
         ImGui.SetNextItemWidth(64);
         var time = e.Time ?? "";
-        if (ImGui.InputText("##time", ref time, 4, ImGuiInputTextFlags.CharsDecimal))
+        if (ImGui.InputText($"##time{id}", ref time, 4, ImGuiInputTextFlags.CharsDecimal))
         {
             e.Time = time;
             EzConfig.Save();
@@ -772,7 +779,7 @@ public class MainWindow : ConfigWindow
         var dcWorlds = GetDcWorldsCached();
         var comboLabel = string.IsNullOrEmpty(e.World) ? "请选择服务器" : e.World;
         if (dcWorlds.Count == 0 && !string.IsNullOrEmpty(e.World)) comboLabel += "（当前大区列表不可用）";
-        if (ImGui.BeginCombo("##dc", comboLabel))
+        if (ImGui.BeginCombo($"##dc{id}", comboLabel))
         {
             if (dcWorlds.Count == 0)
             {
@@ -796,7 +803,7 @@ public class MainWindow : ConfigWindow
             ImGui.SetTooltip("服务器列表取自角色当前所在大区；切换大区后重新打开本页面，列表会随之更新");
 
         ImGui.SameLine(0, 8);
-        if (GhostButton("##del", IcX, "删除", warn: true))
+        if (GhostButton($"##del{id}", IcX, "删除", warn: true))
             scheduleDeleted = true;
         RowEnd();
     }
@@ -1027,7 +1034,8 @@ public class MainWindow : ConfigWindow
     private bool rowAuto;
     private Vector2 rowStart;
     private float rowWidth;
-    private Vector2 rowRectMin, rowRectMax; // 子窗口卡片的背景/描边统一用这个矩形（自绘，保证重合）
+    private Vector2 rowRectMin, rowRectMax; // 固定高度卡片的背景/描边统一矩形（父 drawlist 自绘）
+    private int rowId;                      // 当前卡片编号（子窗口时代用于 ID 稳定，现在用于控件 ID 去重）
 
     /// <summary>
     /// 开始一张行式卡片。height &gt; 0：固定高度（子窗口实现）；
@@ -1039,14 +1047,13 @@ public class MainWindow : ConfigWindow
         if (height > 0)
         {
             rowAuto = false;
-            // 记录卡片矩形：背景与描边都由我们自绘（ChildBg 置空），
-            // 避免两种绘制路径几何不一致导致"绿框不包围卡片"
+            rowId = ++rowCounter;
+            // 不用子窗口：背景/描边/内容全部画在父 drawlist 上（绝对坐标），
+            // 彻底规避子窗口裁剪/几何差异导致的"绿框不包围卡片/卡片显示不全"
             rowRectMin = ImGui.GetCursorScreenPos();
             rowRectMax = new Vector2(rowRectMin.X + ImGui.GetContentRegionAvail().X, rowRectMin.Y + height);
-            ImGui.PushStyleColor(ImGuiCol.ChildBg, 0u);
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(14, 8));
-            ImGui.BeginChild("##row" + rowCounter++, new Vector2(-1, height), false, ImGuiWindowFlags.AlwaysUseWindowPadding);
-            ImGui.GetWindowDrawList().AddRectFilled(rowRectMin, rowRectMax, ColCard, 14f); // 第一条命令 = 最底层背景
+            ImGui.GetWindowDrawList().AddRectFilled(rowRectMin, rowRectMax, ColCard, 14f); // 背景最先画（最底层）
+            ImGui.SetCursorScreenPos(rowRectMin + new Vector2(14, 8)); // 内容起点（等效内边距）
         }
         else
         {
@@ -1084,15 +1091,15 @@ public class MainWindow : ConfigWindow
         }
         else
         {
-            if (rowBorder.HasValue) // 描边最后画：位于内容之上，与自绘背景同一矩形，保证包围卡片
+            if (rowBorder.HasValue) // 描边最后画：位于内容之上，与背景同一矩形
             {
                 var dl = ImGui.GetWindowDrawList();
                 dl.AddRect(rowRectMin + new Vector2(0.5f, 0.5f), rowRectMax - new Vector2(0.5f, 0.5f), rowBorder.Value, 14f, 0, 1.5f);
             }
-            ImGui.EndChild();
-            ImGui.PopStyleVar();   // WindowPadding
-            ImGui.PopStyleColor(); // ChildBg
-            ImGui.Dummy(new Vector2(0, 8));
+            // 注册与卡片等大的占位项：恢复排版流，调用方 SameLine 也能正确横排
+            ImGui.SetCursorScreenPos(rowRectMin);
+            ImGui.Dummy(new Vector2(rowRectMax.X - rowRectMin.X, rowRectMax.Y - rowRectMin.Y));
+            ImGui.Dummy(new Vector2(0, 6)); // 卡片间距
         }
         rowBorder = null;
         rowAuto = false;
@@ -1107,8 +1114,8 @@ public class MainWindow : ConfigWindow
     {
         RowBegin(58f, border);
         var dl = ImGui.GetWindowDrawList();
-        var p = ImGui.GetWindowPos();
-        var s = ImGui.GetWindowSize();
+        var p = rowRectMin;
+        var s = rowRectMax - rowRectMin;
 
         // 裁剪到卡片圆角矩形内，防止长文本溢出边框（招募预览等）
         dl.PushClipRect(p + new Vector2(2, 2), p + s - new Vector2(2, 2), true);
@@ -1140,7 +1147,7 @@ public class MainWindow : ConfigWindow
             var bh = 26f;
             var bpos = new Vector2(x - bw, cy - bh / 2);
             ImGui.SetCursorScreenPos(bpos);
-            if (ImGui.InvisibleButton("##rowbtn", new(bw, bh)))
+            if (ImGui.InvisibleButton("##rowbtn" + rowId, new(bw, bh)))
                 onBtn();
             if (ImGui.IsItemHovered())
                 dl.AddRectFilled(bpos, bpos + new Vector2(bw, bh), C(255, 107, 107, 38), bh / 2);
