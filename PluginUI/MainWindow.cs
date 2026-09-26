@@ -56,25 +56,31 @@ public class MainWindow : ConfigWindow
     private const string IcChevD = "\uf078";
 
     private static ImFontPtr _iconFont;
-    private static DateTime _iconFontNextTry = DateTime.MinValue;
+    private static int _iconFontFrame = -1;
+    private static int frameStamp;
 
-    /// <summary>Dalamud 内置 FontAwesome 字体（IconFontHandle 仅提供 Push/Pop，在 Push 期间抓取 ImFont 缓存；失败后每 5 秒重试）。</summary>
+    /// <summary>
+    /// Dalamud 内置 FontAwesome 字体。IconFontHandle 仅提供 Push/Pop，需在 Push 期间抓取 GetFont()。
+    /// 关键：必须<b>每帧刷新</b>——Dalamud 会在任意一帧之间重建字体图集（如文本框触发输入法/字体需求），
+    /// 长期缓存旧的 ImFontPtr 会变成悬空指针，PushFont 时直接崩溃游戏。
+    /// </summary>
     private static ImFontPtr IconFont()
     {
-        if (_iconFont.IsNull && DateTime.Now >= _iconFontNextTry)
+        if (_iconFontFrame != frameStamp)
         {
+            _iconFontFrame = frameStamp;
             try
             {
                 var h = Svc.PluginInterface.UiBuilder.IconFontFixedWidthHandle;
                 if (h != null)
                 {
                     h.Push();
-                    _iconFont = ImGui.GetFont();
+                    var f = ImGui.GetFont();
                     h.Pop();
+                    if (!f.IsNull) _iconFont = f;
                 }
             }
             catch { _iconFont = default; }
-            _iconFontNextTry = DateTime.Now.AddSeconds(5);
         }
         return _iconFont;
     }
@@ -134,6 +140,8 @@ public class MainWindow : ConfigWindow
 
     public override void Draw()
     {
+        frameStamp++; // 每帧自增：驱动图标字体指针刷新（防止字体图集重建后旧指针悬空）
+
         // 全部子区域用绝对定位，杜绝 ItemSpacing 累积把底栏推出窗外（曾导致外层滚动条+底栏按钮被裁）
         var W = ImGui.GetWindowSize().X;
         var H = ImGui.GetWindowSize().Y;
@@ -1282,8 +1290,12 @@ public class MainWindow : ConfigWindow
         var x = pos.X + 13f;
         if (its.X > 0)
         {
-            dl.AddText(IconFont(), fs, new(x, pos.Y + (size.Y - its.Y) / 2), txtCol, glyph);
-            x += iw;
+            var iconFont = IconFont();
+            if (!iconFont.IsNull)
+            {
+                dl.AddText(iconFont, fs, new(x, pos.Y + (size.Y - its.Y) / 2), txtCol, glyph);
+                x += iw;
+            }
         }
         var ts2 = ImGui.CalcTextSize(label);
         dl.AddText(ImGui.GetFont(), fs, new(x, pos.Y + (size.Y - ts2.Y) / 2), txtCol, label);
