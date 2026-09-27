@@ -42,6 +42,7 @@ internal static unsafe class HuntController
     public static string SpawnMatchRank => pendingTarget?.MatchedRank ?? "";
 
     private static TargetPosition? pendingTarget = null;
+    private static TargetPosition? queuedTarget = null; // 车头提前发来的下一坐标：当前怪死亡前缓存，死亡后再执行
     private static DateTime stateStartTime = DateTime.MinValue;
     private static Vector3 lastNavDest = Vector3.Zero;
     private static bool navStarted = false;
@@ -86,7 +87,28 @@ internal static unsafe class HuntController
             return;
         }
 
-        // 如果正在输出中，先停止（车头发新坐标 = 当前怪已处理完或要换目标）
+        // 车头可能提前发送下一个坐标：当前目标仍存活（或战斗中无法确认死亡）时，
+        // 缓存新坐标，保持当前输出与站位；怪物死亡（Finished）后再停止输出并执行新坐标。
+        // 仅当目标确认已死亡（或丢失且已脱战）时才立即切换，行为与旧版一致。
+        if (CurrentState == State.Attacking || CurrentState == State.Descending
+            || CurrentState == State.Dismounting || CurrentState == State.Outputting)
+        {
+            var cur = GetValidTarget();
+            bool aliveOrBusy = cur != null ? !cur.IsDead : Svc.Condition[ConditionFlag.InCombat];
+            if (aliveOrBusy)
+            {
+                bool same = queuedTarget != null
+                    && queuedTarget.TerritoryId == target.TerritoryId
+                    && Vector2.Distance(queuedTarget.WorldXZ, target.WorldXZ) < 50f;
+                queuedTarget = target; // 最新坐标覆盖旧缓存（车头总是发最新目标）
+                if (!same)
+                    Notify.Info($"当前狩猎怪未死亡，新坐标已缓存 ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})，怪物死亡后自动前往。");
+                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 缓存车头新坐标（当前怪存活，不打断战斗）: ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0}) Territory={target.TerritoryId}");
+                return;
+            }
+        }
+
+        // 如果正在输出中，先停止（当前怪已确认死亡，车头发新坐标 = 换目标）
         if (CurrentState == State.Outputting || CurrentState == State.Attacking || CurrentState == State.Dismounting || CurrentState == State.Descending)
         {
             StopOutput();
@@ -234,10 +256,19 @@ internal static unsafe class HuntController
                 break;
 
             case State.Finished:
-                // 短暂延迟后回到 Idle
+                // 短暂延迟后回到 Idle；期间有缓存的车头新坐标（当前怪死亡时到达的）则立即执行
                 if ((DateTime.Now - stateStartTime).TotalSeconds > 2)
                 {
-                    Reset();
+                    if (queuedTarget != null)
+                    {
+                        var qt = queuedTarget;
+                        queuedTarget = null;
+                        OnNewCoordinate(qt); // 此时怪已死亡、停止输出已执行，直接进入新坐标流程
+                    }
+                    else
+                    {
+                        Reset();
+                    }
                 }
                 break;
         }
@@ -980,6 +1011,7 @@ internal static unsafe class HuntController
     {
         CurrentState = State.Idle;
         pendingTarget = null;
+        queuedTarget = null;
         navStarted = false;
         notifiedNoHunt = false;
         dismountPending = false;
