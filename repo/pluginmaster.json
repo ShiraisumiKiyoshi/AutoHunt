@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.15",
+    "AssemblyVersion": "2.4.0.16",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.15.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.15.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.15.zip",
-    "LastUpdate": 1790515446,
-    "Changelog": "v2.4.0.15 修复本地图最后一个副本区击杀满后原地切回 1 号区：回绕时等待车头下一地图坐标随传送切区；悬停等待改为持续跟随目标移动（始终保持在目标上方 ZOffset 高度，血量达标后停止移动下坐骑输出）"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.16.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.16.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.16.zip",
+    "LastUpdate": 1790517468,
+    "Changelog": "v2.4.0.16 修复选不中狩猎怪/提前放弃：目标怪仍在扫描范围内时不放弃持续尝试选中，选怪优先车头坐标附近那只；悬停跟随改为按对象表怪物坐标跟随（不再依赖目标系统挂住），选不中时也保持头顶跟随"
   }
 ]

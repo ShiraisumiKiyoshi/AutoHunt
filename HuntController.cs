@@ -599,6 +599,14 @@ internal static unsafe class HuntController
                 notifiedNoHunt = true;
                 Notify.Info($"已在 [{pendingTarget.MatchedRank}] 级狩猎怪出生点附近等待，自动扫描怪物中…");
             }
+
+            // 跟随兜底：怪已出现但目标系统暂时选不上时，仍保持在其头顶悬停跟随
+            var waitMob = FindNearestHuntMobTo(pendingTarget.WorldXZ);
+            if (waitMob != null
+                && Vector2.Distance(new Vector2(waitMob.Position.X, waitMob.Position.Z), pendingTarget.WorldXZ) < 40f)
+            {
+                HoverFollow(waitMob);
+            }
         }
         else
         {
@@ -644,6 +652,15 @@ internal static unsafe class HuntController
         var timeoutSec = hasSpawnMatch ? 300 : 30;
         if ((DateTime.Now - stateStartTime).TotalSeconds > timeoutSec)
         {
+            // 放弃豁免：目标怪仍在车头坐标附近（扫描可见）= 还在流程内，
+            // 只是暂时选不中 → 继续尝试选中，不放弃
+            if (HasAliveHuntMobNearCoord())
+            {
+                stateStartTime = DateTime.Now; // 重置计时，超时周期后再评估
+                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 狩猎怪仍在附近，继续尝试选中（放弃豁免）");
+                return;
+            }
+
             if (P.Config.Debug)
             {
                 foreach (var obj in Svc.Objects)
@@ -655,6 +672,42 @@ internal static unsafe class HuntController
             Notify.Error($"{timeoutSec}秒内未找到狩猎怪，放弃当前目标。");
             Reset();
         }
+    }
+
+    /// <summary>
+    /// 悬停跟随：骑乘可飞期间持续跟随指定怪上方 ZOffset 高度，直到血量到达阈值。
+    /// 距离悬停点超过 5m 才重新寻路（每秒最多一次）。
+    /// 血量≤阈值时完全不移动——下坐骑阶段不能有任何自身移动指令
+    /// （飞行中按坐骑键触发自动降落，任何移动输入都会打断降落）。
+    /// </summary>
+    private static void HoverFollow(IBattleNpc mob)
+    {
+        if (!Player.Mounted || !Player.CanFly) return;
+        if (mob.MaxHp > 0)
+            CurrentTargetHpPercent = mob.CurrentHp / (float)mob.MaxHp * 100f;
+        if (CurrentTargetHpPercent <= P.Config.DismountHpPercent) return;
+        if (!S.VnavmeshIPC.GetIsReady()) return;
+        if (!EzThrottler.Throttle("WYHoverFollow", 1000)) return;
+
+        var hoverPoint = new Vector3(mob.Position.X, mob.Position.Y + P.Config.ZOffset, mob.Position.Z);
+        float hoverDist = Vector3.Distance(Player.Position, hoverPoint);
+        if (hoverDist > 5f)
+        {
+            S.VnavmeshIPC.TryPathfindAndMoveTo(hoverPoint, true);
+            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停跟随目标 (偏差 {hoverDist:0.0}m)");
+        }
+    }
+
+    /// <summary>
+    /// 车头坐标附近（150m 内）是否仍有存活的狩猎怪（对象表扫描，与扫描 UI 同判定）。
+    /// 用于"选不中/目标丢失"时的放弃豁免：怪还在就不放弃，持续尝试。
+    /// </summary>
+    private static bool HasAliveHuntMobNearCoord()
+    {
+        if (pendingTarget == null) return false;
+        var mob = FindNearestHuntMobTo(pendingTarget.WorldXZ);
+        if (mob == null) return false;
+        return Vector2.Distance(new Vector2(mob.Position.X, mob.Position.Z), pendingTarget.WorldXZ) < 150f;
     }
 
     /// <summary>采用目标为当前狩猎目标并进入攻击阶段。note 为附加提示（如"（当前目标）"）。</summary>
@@ -707,6 +760,15 @@ internal static unsafe class HuntController
                 return;
             }
 
+            // 跟随兜底：目标系统暂时选不上（被其他插件改目标/对象表抖动）时，
+            // 只要目标怪还在对象表里（存活），就按其真实位置继续头顶悬停跟随，
+            // 不让悬停跟随因目标挂不住而中断。
+            var tracked = lastTargetId != 0
+                ? Svc.Objects.FirstOrDefault(x => x.GameObjectId == lastTargetId) as IBattleNpc
+                : null;
+            if (tracked != null && !tracked.IsDead)
+                HoverFollow(tracked);
+
             // 战斗中（仇恨还在）说明怪大概率存活，只是被挤出对象表选不中 → 不放弃
             bool inCombat = Svc.Condition[ConditionFlag.InCombat];
             if (!inCombat)
@@ -732,6 +794,14 @@ internal static unsafe class HuntController
 
                 if ((DateTime.Now - targetLostSince).TotalSeconds > 30)
                 {
+                    // 放弃豁免：目标怪仍在车头坐标附近（扫描可见）= 还在流程内，
+                    // 只是暂时选不中 → 继续尝试，不放弃
+                    if (HasAliveHuntMobNearCoord())
+                    {
+                        targetLostSince = DateTime.Now; // 重置计时，30 秒后再评估
+                        if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 目标仍在附近，继续尝试重新选中（放弃豁免）");
+                        return;
+                    }
                     Notify.Error("目标丢失超过30秒，放弃当前目标。");
                     CurrentState = State.Finished;
                     stateStartTime = DateTime.Now;
@@ -749,22 +819,7 @@ internal static unsafe class HuntController
         // 悬停跟随：骑乘悬停期间持续跟随目标移动，始终保持在目标上方 ZOffset 高度，
         // 直到血量到达阈值再下坐骑输出（怪被其他玩家吸引仇恨游走时同样跟随，
         // 保证目标始终在可选中/可输出范围内）。
-        // 距离悬停点超过 5m 才重新寻路（每秒最多一次），避免每帧重算。
-        // 注意：血量已达标后不再移动——进入下坐骑阶段后不能再有自身移动指令
-        // （飞行中按坐骑键触发自动降落，任何移动输入都会打断降落）。
-        if (Player.Mounted && Player.CanFly
-            && CurrentTargetHpPercent > P.Config.DismountHpPercent
-            && S.VnavmeshIPC.GetIsReady()
-            && EzThrottler.Throttle("WYHoverFollow", 1000))
-        {
-            var hoverPoint = new Vector3(target.Position.X, target.Position.Y + P.Config.ZOffset, target.Position.Z);
-            float hoverDist = Vector3.Distance(Player.Position, hoverPoint);
-            if (hoverDist > 5f)
-            {
-                S.VnavmeshIPC.TryPathfindAndMoveTo(hoverPoint, true);
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停跟随目标 (偏差 {hoverDist:0.0}m)");
-            }
-        }
+        HoverFollow(target);
 
         // 血量低于阈值 → 下坐骑准备输出
         if (CurrentTargetHpPercent <= P.Config.DismountHpPercent)
@@ -1247,10 +1302,13 @@ internal static unsafe class HuntController
     /// <summary>寻找最近的狩猎怪（通过 NotoriousMonster 数据表判定 B/A/S 级）。</summary>
     private static IBattleNpc? FindNearestHuntMob()
     {
-        IBattleNpc? best = null;
-        float bestDist = float.MaxValue;
+        IBattleNpc? bestByPlayer = null;   // 距玩家最近
+        float bestPlayerDist = float.MaxValue;
+        IBattleNpc? bestByCoord = null;    // 距车头坐标最近
+        float bestCoordDist = float.MaxValue;
         bool includeB = P.Config.IncludeBRank;
         bool dbEmpty = HuntMobDatabase.RankMap.Count == 0;
+        var coordXZ = pendingTarget?.WorldXZ ?? Vector2.Zero;
 
         foreach (var obj in Svc.Objects)
         {
@@ -1263,18 +1321,31 @@ internal static unsafe class HuntController
             if (!isHunt && dbEmpty && IsHuntMobName(npc.Name.TextValue)) isHunt = true;
             if (!isHunt) continue;
 
-            float dist = Vector3.Distance(Player.Position, npc.Position);
-            if (dist < bestDist)
+            float distPlayer = Vector3.Distance(Player.Position, npc.Position);
+            if (distPlayer < bestPlayerDist)
             {
-                bestDist = dist;
-                best = npc;
+                bestPlayerDist = distPlayer;
+                bestByPlayer = npc;
+            }
+            if (pendingTarget != null)
+            {
+                float distCoord = Vector2.Distance(new Vector2(npc.Position.X, npc.Position.Z), coordXZ);
+                if (distCoord < bestCoordDist)
+                {
+                    bestCoordDist = distCoord;
+                    bestByCoord = npc;
+                }
             }
         }
+
+        // 优先选车头坐标附近（120m 内，与导航精化阈值一致）的那只——
+        // 车头坐标附近才是本次目标，防止误选上一只怪或别处的狩猎怪
+        var best = bestByCoord != null && bestCoordDist <= 120f ? bestByCoord : bestByPlayer;
 
         if (best != null && P.Config.Debug)
         {
             var label = HuntMobDatabase.GetRankLabel(best.NameId);
-            PluginLog.Debug($"[AutoHunt] 锁定狩猎怪: {best.Name.TextValue} (NameId={best.NameId}, 等级={label}, 距离={bestDist:0}m)");
+            PluginLog.Debug($"[AutoHunt] 锁定狩猎怪: {best.Name.TextValue} (NameId={best.NameId}, 等级={label}, 距离={Vector3.Distance(Player.Position, best.Position):0}m)");
         }
 
         return best;
