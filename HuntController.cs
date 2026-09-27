@@ -614,14 +614,47 @@ internal static unsafe class HuntController
                 if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 攻击阶段目标丢失，尝试重新选中…");
             }
             TryRetarget();
-            // 战斗中（仇恨还在）说明怪大概率存活，只是被挤出对象表选不中 → 不放弃
-            bool inCombat = Svc.Condition[ConditionFlag.InCombat];
-            if (!inCombat && (DateTime.Now - targetLostSince).TotalSeconds > 30)
+
+            // 尸体确认：按记录 ID 在对象表找到尸体（IsDead）= 已击杀，立即结束，不等超时
+            if (IsTrackedMobDead())
             {
-                Notify.Error("目标丢失超过30秒，放弃当前目标。");
+                Notify.Info("目标已死亡（检测到尸体），停止流程。");
                 CurrentState = State.Finished;
                 stateStartTime = DateTime.Now;
                 StopOutput();
+                return;
+            }
+
+            // 战斗中（仇恨还在）说明怪大概率存活，只是被挤出对象表选不中 → 不放弃
+            bool inCombat = Svc.Condition[ConditionFlag.InCombat];
+            if (!inCombat)
+            {
+                // 脱战 + 周围无存活狩猎怪 → 怪大概率已死亡，快速确认（3 秒）
+                bool noHuntNearby = FindNearestHuntMob() == null;
+                if (noHuntNearby)
+                {
+                    if (outOfCombatSince == DateTime.MinValue) outOfCombatSince = DateTime.Now;
+                    if ((DateTime.Now - outOfCombatSince).TotalSeconds > 3)
+                    {
+                        Notify.Info("目标丢失且脱离战斗，视为已击杀。");
+                        CurrentState = State.Finished;
+                        stateStartTime = DateTime.Now;
+                        StopOutput();
+                        return;
+                    }
+                }
+                else
+                {
+                    outOfCombatSince = DateTime.MinValue;
+                }
+
+                if ((DateTime.Now - targetLostSince).TotalSeconds > 30)
+                {
+                    Notify.Error("目标丢失超过30秒，放弃当前目标。");
+                    CurrentState = State.Finished;
+                    stateStartTime = DateTime.Now;
+                    StopOutput();
+                }
             }
             return;
         }
@@ -889,6 +922,17 @@ internal static unsafe class HuntController
             }
             TryRetarget();
 
+            // 尸体确认：按记录 ID 在对象表找到尸体（IsDead）= 已击杀，立即停止输出
+            if (IsTrackedMobDead())
+            {
+                Notify.Info("目标已死亡（检测到尸体），停止输出。");
+                OnMobKilled();
+                StopOutput();
+                CurrentState = State.Finished;
+                stateStartTime = DateTime.Now;
+                return;
+            }
+
             // 战斗中（我们打过它、仇恨还在）→ 怪大概率还活着，只是被挤出对象表
             // 选不中而已。绝不停止输出，持续等待重新选中。
             bool inCombat = Svc.Condition[ConditionFlag.InCombat];
@@ -900,10 +944,11 @@ internal static unsafe class HuntController
 
             // 脱战（怪的仇恨表已清空 = 已死亡）+ 周围无存活狩猎怪 → 视为已击杀。
             // 补调 OnMobKilled 计数（按记录的目标 ID），修复"视为已击杀"却不计数的问题。
+            // 脱战 3 秒即可确认（战斗标志在死亡后几秒内消失，无需等 10 秒）。
             if (outOfCombatSince == DateTime.MinValue) outOfCombatSince = DateTime.Now;
             bool noHuntNearby = FindNearestHuntMob() == null;
-            bool lostLongEnough = (DateTime.Now - targetLostSince).TotalSeconds > 60;
-            bool outOfCombatLongEnough = (DateTime.Now - outOfCombatSince).TotalSeconds > 10;
+            bool outOfCombatLongEnough = (DateTime.Now - outOfCombatSince).TotalSeconds > 3;
+            bool lostLongEnough = (DateTime.Now - targetLostSince).TotalSeconds > 30;
             if (noHuntNearby && outOfCombatLongEnough)
             {
                 Notify.Info("目标已丢失且脱离战斗，视为已击杀，停止输出。");
@@ -1026,6 +1071,19 @@ internal static unsafe class HuntController
         CurrentTargetRank = "";
         CurrentTargetHpPercent = 100f;
         S.VnavmeshIPC.StopPath();
+    }
+
+    /// <summary>
+    /// 目标丢失后，按记录的目标 ID 直接在对象表查找尸体：找到且 IsDead = 确认已击杀。
+    /// 人多时死亡怪物会被挤出对象表或被快速清尸，此方法能抓住尸体尚存的窗口立即确认死亡，
+    /// 避免走"目标丢失 → 等脱战/超时"的长延迟路径。按 GameObjectId 精确匹配，
+    /// 对象表槽位被复用（ID 不同）时不会误判。
+    /// </summary>
+    private static bool IsTrackedMobDead()
+    {
+        if (lastTargetId == 0) return false;
+        var corpse = Svc.Objects.FirstOrDefault(x => x.GameObjectId == lastTargetId) as IBattleNpc;
+        return corpse != null && corpse.IsDead;
     }
 
     /// <summary>寻找最近的狩猎怪（通过 NotoriousMonster 数据表判定 B/A/S 级）。</summary>
