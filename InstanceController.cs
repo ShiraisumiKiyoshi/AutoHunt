@@ -60,6 +60,9 @@ internal static unsafe class InstanceController
         markedMobIds.Clear();
         cachedInstanceCount = 0;
         cachedCurrentInstance = 0;
+        // 手动传送/切图后，"击杀满等待新坐标切区"的计划已过期：
+        // 不清除的话 ZoneCleared 恒为 true，到达结束地图会立刻误触发解散跨区
+        pendingSwitchInstance = 0;
         // 注意：首次进图"保证 1 号副本区"的检测不在事件里做——
         // TerritoryChanged 触发瞬间（读图中）副本区数据尚未就绪，GetInstanceCount 返回 1，
         // 在这里判定会错过时机且不会重试；改由 Update() 每秒重试直到读到有效数据。
@@ -123,6 +126,9 @@ internal static unsafe class InstanceController
                 skippedMobIds.Clear();
                 engagedMobIds.Clear();
                 markedMobIds.Clear();
+                // 副本区已变化（含手动切换）：原计划的切区目标作废，
+                // 否则僵尸 pendingSwitch 会让 ZoneCleared 恒为 true（结束地图误解散）
+                pendingSwitchInstance = 0;
             }
         }
 

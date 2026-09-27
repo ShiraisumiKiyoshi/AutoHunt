@@ -78,11 +78,14 @@ internal static unsafe class HuntController
         if (target == null) return;
 
         // 重复坐标过滤：车头为迟到玩家补发坐标时，若当前正处于
-        // 攻击/下降/下坐骑/输出阶段，且新坐标与当前目标相近（同图 < 50m），
+        // 攻击/下降/下坐骑/输出/导航/上马阶段，且新坐标与当前目标相近（同图 < 50m），
         // 视为同一只怪的重复坐标，忽略之——避免 StopOutput 打断正在进行的战斗，
         // 以及重启流程后因怪被挤出对象表找不到而超时停止。
+        // 导航/上马阶段同样过滤：车头会随怪物游走反复播报同一只怪，
+        // 不过滤的话每次播报都会重置导航、把角色拽向怪物新位置（表现为始终跟随怪物）。
         if ((CurrentState == State.Attacking || CurrentState == State.Descending
-                || CurrentState == State.Dismounting || CurrentState == State.Outputting)
+                || CurrentState == State.Dismounting || CurrentState == State.Outputting
+                || CurrentState == State.Navigating || CurrentState == State.Mounting)
             && pendingTarget != null
             && target.TerritoryId == pendingTarget.TerritoryId
             && Vector2.Distance(target.WorldXZ, pendingTarget.WorldXZ) < 50f)
@@ -268,11 +271,45 @@ internal static unsafe class HuntController
                 // 短暂延迟后回到 Idle；期间有缓存的车头新坐标（当前怪死亡时到达的）则立即执行
                 if ((DateTime.Now - stateStartTime).TotalSeconds > 2)
                 {
+                    var pendingSwitch = InstanceController.PendingSwitchInstance;
                     if (queuedTarget != null)
                     {
                         var qt = queuedTarget;
                         queuedTarget = null;
-                        OnNewCoordinate(qt); // 此时怪已死亡、停止输出已执行，直接进入新坐标流程
+                        // 与刚击杀怪同图且 <50m → 同一只怪的重复播报，丢弃
+                        if (pendingTarget != null && qt.TerritoryId == pendingTarget.TerritoryId
+                            && Vector2.Distance(qt.WorldXZ, pendingTarget.WorldXZ) < 50f)
+                        {
+                            if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 丢弃已击杀怪的重复缓存坐标");
+                        }
+                        else if (pendingSwitch != 0)
+                        {
+                            // 击杀数已满 + 已有下一坐标：传送时顺路切换副本区。
+                            // 此前这条路径会绕过切区判断（坐标在怪死亡前被缓存），
+                            // 导致切区永远不被触发、pendingSwitch 变成僵尸状态。
+                            InstanceController.ConsumePendingSwitch();
+                            // 暂存坐标：切区完成后由主循环继续前往
+                            P.HeldCoordinate = qt;
+                            P.TeleportTo = new ArrivalData
+                            {
+                                Aetheryte = qt.NearestAetheryte,
+                                Territory = qt.TerritoryId,
+                                SwitchInstance = pendingSwitch,
+                            };
+                            Notify.Info($"已击杀满，前往下一坐标途中切换到 {pendingSwitch} 号副本区…");
+                            Reset();
+                        }
+                        else
+                        {
+                            OnNewCoordinate(qt); // 此时怪已死亡、停止输出已执行，直接进入新坐标流程
+                        }
+                    }
+                    else if (pendingSwitch != 0 && !P.TaskManager.IsBusy)
+                    {
+                        // 击杀数已满且暂无新坐标：立即切换副本区，不再苦等车头发坐标
+                        InstanceController.ConsumePendingSwitch();
+                        Notify.Info($"已击杀满，立即切换到 {pendingSwitch} 号副本区…");
+                        TaskEnsureInstance.Enqueue(pendingSwitch);
                     }
                     else
                     {
@@ -709,10 +746,16 @@ internal static unsafe class HuntController
 
         // 悬停高度校正：已选中目标后，若悬停高度超过 目标Y + ZOffset + 8m（估算偏差或回退锚点不准），
         // 持续下调到目标正上方 ZOffset 高度，保证目标始终在可选中/可输出范围内。
+        // 仅在怪仍在附近（水平 <20m）时校正：怪被其他玩家吸引仇恨游走时不去追赶，
+        // 原地悬停等它回来（车头会重新播报位置）。
         // 注意：血量已达标时不校正——进入下坐骑阶段后不能再有自身移动指令
         // （BossMod 等躲避插件会在骑乘状态移动角色，自身寻路会加剧干扰下坐骑）。
+        float hoverMobDistXZ = Vector2.Distance(
+            new Vector2(Player.Position.X, Player.Position.Z),
+            new Vector2(target.Position.X, target.Position.Z));
         if (Player.Mounted && Player.CanFly
             && CurrentTargetHpPercent > P.Config.DismountHpPercent
+            && hoverMobDistXZ < 20f
             && Player.Position.Y - target.Position.Y > P.Config.ZOffset + 8f
             && S.VnavmeshIPC.GetIsReady()
             && EzThrottler.Throttle("WYHoverAdjust", 3000))

@@ -271,7 +271,7 @@ public unsafe class AutoHunt : IDalamudPlugin
                 Notify.Info($"到达目的地，切换到 {data.SwitchInstance} 号副本区…");
                 SwitchInProgress = true;
                 SwitchStartTime = DateTime.Now;
-                HeldCoordinate = null;
+                // 注意：不清理 HeldCoordinate——传送期间/击杀满暂存的坐标要在切区完成后继续前往
                 TaskEnsureInstance.Enqueue(data.SwitchInstance);
             }
             else
