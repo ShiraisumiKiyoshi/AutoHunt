@@ -32,11 +32,18 @@ public static unsafe class TaskMount
             return false;
         }
 
-        if (Svc.Condition[ConditionFlag.MountOrOrnamentTransition] || Svc.Condition[ConditionFlag.Casting])
+        // 传送/切副本区落地后的动画锁定、加载过渡等瞬态下同样无法上马，但并非区域禁骑：
+        // 必须视为「等待」返回 false，否则 GetActionStatus 在这些瞬态下返回非 0，
+        // 会被误判为禁骑而永久放弃上马（表现为切区后不上坐骑、寻路原地发呆）。
+        if (!Player.Interactable || Player.IsAnimationLocked
+            || Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51]
+            || Svc.Condition[ConditionFlag.MountOrOrnamentTransition]
+            || (S.LifestreamIPC?.GetIsBusy() ?? false))
         {
-            EzThrottler.Throttle("WYCheckMount", 2000, true);
+            return false;
         }
-        if (!EzThrottler.Check("WYCheckMount")) return false;
+
+        if (!EzThrottler.Throttle("WYCheckMount", 200)) return false;
 
         // 无法使用坐骑动作（如区域内禁止骑乘）→ 放弃
         if (FFXIVClientStructs.FFXIV.Client.Game.ActionManager.Instance()

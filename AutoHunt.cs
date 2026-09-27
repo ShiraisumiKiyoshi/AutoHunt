@@ -153,8 +153,11 @@ public unsafe class AutoHunt : IDalamudPlugin
                 DependencyChecker.CheckAndNotify();
             }
 
-            // 副本区切换完成检测：任务链结束（≥2 秒避免启动帧误判）→ 继续暂存的车头坐标
-            if (SwitchInProgress && (DateTime.Now - SwitchStartTime).TotalSeconds > 2 && !TaskManager.IsBusy)
+            // 副本区切换完成检测：任务链结束且 Lifestream 空闲（≥2 秒避免启动帧误判）→ 继续暂存的车头坐标
+            // 必须等 Lifestream 真正完成切区（含加载过渡）再派发，否则坐标流程会和切换的
+            // 下坐骑/传送撞在一起，落地后处于未骑乘状态直接进寻路
+            if (SwitchInProgress && (DateTime.Now - SwitchStartTime).TotalSeconds > 2
+                && !TaskManager.IsBusy && !(S.LifestreamIPC?.GetIsBusy() ?? false))
             {
                 SwitchInProgress = false;
                 var held = HeldCoordinate;

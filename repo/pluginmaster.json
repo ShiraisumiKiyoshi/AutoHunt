@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.17",
+    "AssemblyVersion": "2.4.0.18",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.17.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.17.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.17.zip",
-    "LastUpdate": 1790518918,
-    "Changelog": "v2.4.0.17 修复击杀满后随坐标切区/换图时车头坐标被丢弃，导致切完副本区或到达新地图后不去车头坐标：坐标现统一暂存，切区完成后自动继续前往；切区期间车头发来的坐标也会暂存不打架；不可切副本区的地图到达后同样继续前往车头坐标"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.18.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.18.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.18.zip",
+    "LastUpdate": 1790520485,
+    "Changelog": "v2.4.0.18 修复切换副本区下坐骑后不再自动上马、寻路原地发呆：切区落地后的动画锁定/加载过渡等瞬态不再被误判为区域禁骑而永久放弃上马；切区完成检测增加 Lifestream 空闲判断，坐标派发不再与切换的加载过渡撞车"
   }
 ]
