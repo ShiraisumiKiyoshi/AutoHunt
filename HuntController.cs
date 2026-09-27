@@ -43,6 +43,7 @@ internal static unsafe class HuntController
 
     private static TargetPosition? pendingTarget = null;
     private static TargetPosition? queuedTarget = null; // 车头提前发来的下一坐标：当前怪死亡前缓存，死亡后再执行
+    private static bool navRefined = false; // 导航目的地已精化为怪物真实坐标（一次性）
     private static DateTime stateStartTime = DateTime.MinValue;
     private static Vector3 lastNavDest = Vector3.Zero;
     private static bool navStarted = false;
@@ -115,6 +116,8 @@ internal static unsafe class HuntController
         }
 
         pendingTarget = target;
+        queuedTarget = null;
+        navRefined = false;
         navStarted = false;
         notifiedNoHunt = false;
         dismountPending = false;
@@ -293,6 +296,9 @@ internal static unsafe class HuntController
         }
 
         var target = pendingTarget!;
+
+        // 动态精化：狩猎怪进入对象表范围后立即把目的地改为其真实坐标（见 RefineNavTarget）
+        RefineNavTarget();
         var selfXZ = new Vector2(Player.Position.X, Player.Position.Z);
         float distXZ = Vector2.Distance(selfXZ, target.WorldXZ);
 
@@ -452,6 +458,9 @@ internal static unsafe class HuntController
     /// <summary>精确悬停阶段：监测路径与到达（3D 距离 < 15m），路径中断 5 秒重试，纳入整体 120 秒超时。</summary>
     private static void UpdatePreciseHover()
     {
+        // 精确悬停阶段同样尝试精化（怪物可能刚进入探测范围）
+        RefineNavTarget();
+
         bool running = S.VnavmeshIPC.GetPathIsRunning();
         bool finding = S.VnavmeshIPC.GetPathfindInProgress();
         float dist3D = Vector3.Distance(Player.Position, preciseDest);
@@ -1057,6 +1066,7 @@ internal static unsafe class HuntController
         CurrentState = State.Idle;
         pendingTarget = null;
         queuedTarget = null;
+        navRefined = false;
         navStarted = false;
         notifiedNoHunt = false;
         dismountPending = false;
@@ -1084,6 +1094,75 @@ internal static unsafe class HuntController
         if (lastTargetId == 0) return false;
         var corpse = Svc.Objects.FirstOrDefault(x => x.GameObjectId == lastTargetId) as IBattleNpc;
         return corpse != null && corpse.IsDead;
+    }
+
+    /// <summary>
+    /// 导航中动态精化目标：车头坐标有误差，直接飞过去可能选不到怪。
+    /// 导航/悬停期间持续扫描对象表，发现距车头坐标最近的存活狩猎怪后，
+    /// 把目的地改写为怪物真实坐标（一次性），后续寻路、精确悬停、选怪全部基于真实位置。
+    /// 客户端只能看到约 100 米内已加载的对象，全图精确坐标无法获取；
+    /// 但怪物通常在到达车头坐标之前就已进入探测范围，本方法能在此刻立即改道。
+    /// </summary>
+    private static void RefineNavTarget()
+    {
+        if (navRefined) return;
+        var target = pendingTarget!;
+        if (target.TerritoryId != Svc.ClientState.TerritoryType) return;
+
+        if (!EzThrottler.Throttle("WYNavRefine", 1000)) return;
+
+        var mob = FindNearestHuntMobTo(target.WorldXZ);
+        if (mob == null) return;
+
+        var mobXZ = new Vector2(mob.Position.X, mob.Position.Z);
+        float distToCoord = Vector2.Distance(mobXZ, target.WorldXZ);
+        if (distToCoord > 120f) return; // 离车头坐标太远的怪不是目标（车头坐标误差通常在几十米内）
+
+        navRefined = true;
+        target.WorldXZ = mobXZ;
+        var rank = HuntMobDatabase.GetRankLabel(mob.NameId);
+        Notify.Info($"已锁定车头坐标附近的狩猎怪 [{(string.IsNullOrEmpty(rank) ? "?" : rank)}] {mob.Name.TextValue}，导航至其真实位置…");
+
+        // 重启寻路：flyflag 模式重新插旗，IPC 模式重算路径；精确悬停中则直接改写悬停点
+        if (preciseStarted)
+        {
+            preciseDest = ComputePreciseDest(target);
+            S.VnavmeshIPC.StopPath();
+            S.VnavmeshIPC.TryPathfindAndMoveTo(preciseDest, Player.CanFly);
+            lastPreciseRetry = DateTime.Now;
+        }
+        else
+        {
+            navStarted = false;
+        }
+        if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 导航目标精化: ({mobXZ.X:0.0}, {mobXZ.Y:0.0}) 距车头坐标 {distToCoord:0.0}m");
+    }
+
+    /// <summary>寻找距指定坐标最近的存活狩猎怪（用于导航目标精化）。</summary>
+    private static IBattleNpc? FindNearestHuntMobTo(Vector2 xz)
+    {
+        IBattleNpc? best = null;
+        float bestDist = float.MaxValue;
+        bool includeB = P.Config.IncludeBRank;
+        bool dbEmpty = HuntMobDatabase.RankMap.Count == 0;
+
+        foreach (var obj in Svc.Objects)
+        {
+            if (obj is not IBattleNpc npc) continue;
+            if (npc.IsDead) continue;
+
+            bool isHunt = HuntMobDatabase.IsHuntMob(npc.NameId, includeB);
+            if (!isHunt && dbEmpty && IsHuntMobName(npc.Name.TextValue)) isHunt = true;
+            if (!isHunt) continue;
+
+            float dist = Vector2.Distance(new Vector2(npc.Position.X, npc.Position.Z), xz);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = npc;
+            }
+        }
+        return best;
     }
 
     /// <summary>寻找最近的狩猎怪（通过 NotoriousMonster 数据表判定 B/A/S 级）。</summary>
