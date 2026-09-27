@@ -60,6 +60,9 @@ internal static unsafe class HuntController
     private static DateTime dismountStartTime = DateTime.MinValue;
     private static bool dismountWarned = false; // 下坐骑受阻提示只发一次
 
+    // 上坐骑受阻（区域禁止骑乘等确认无法上马的情况），寻路阶段不再重试
+    private static bool mountBlocked = false;
+
     // 目标追踪（防止玩家过多导致目标丢失后流程中断）
     private static ulong lastTargetId = 0;
     private static Vector3 lastTargetPos = Vector3.Zero;
@@ -120,6 +123,7 @@ internal static unsafe class HuntController
         navRefined = false;
         navStarted = false;
         notifiedNoHunt = false;
+        mountBlocked = false;
         dismountPending = false;
         dismountWarned = false;
         preciseStarted = false;
@@ -221,6 +225,8 @@ internal static unsafe class HuntController
                     {
                         var mounted = TaskMount.MountIfCan();
                         if (!mounted) return; // 还没骑上，继续等
+                        // MountIfCan 返回 true 但仍未骑上 = 区域禁止骑乘等确认无法上马 → 标记
+                        if (!Player.Mounted) mountBlocked = true;
                     }
                     // 超时或该区域禁止骑乘 → 照样进入寻路（vnavmesh 会地面寻路）
                     if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 上坐骑结束: Mounted={Player.Mounted}");
@@ -296,6 +302,34 @@ internal static unsafe class HuntController
         }
 
         var target = pendingTarget!;
+
+        // ===== 兜底：未上坐骑就进入寻路 → 就地补骑 =====
+        // 覆盖所有漏网路径（如上坐骑 20 秒超时、击杀后脱战标记未消导致被跳过）：
+        // 飞行寻路在未骑乘时无法移动，角色会原地站着「发呆」直到超时。
+        // MountIfCan 内部对战斗/咏唱返回 false 继续等待；确认区域禁骑后由 mountBlocked 终止重试。
+        if (P.Config.UseMount && !Player.Mounted && !mountBlocked
+            && Player.Interactable
+            && !Svc.Condition[ConditionFlag.BetweenAreas] && !Svc.Condition[ConditionFlag.BetweenAreas51])
+        {
+            bool mountDone = TaskMount.MountIfCan();
+            if (mountDone && !Player.Mounted)
+            {
+                mountBlocked = true; // 区域禁止骑乘，不再重试
+            }
+            else if (Player.Mounted)
+            {
+                // 补骑成功：重启当前寻路。未骑乘时启动的飞行路径大概率已停摆，
+                // flyflag 模式重新插旗并执行命令，IPC 模式重算路径，精确悬停立即重发。
+                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 寻路途中补骑成功，重启当前寻路");
+                S.VnavmeshIPC.StopPath();
+                navStarted = false;
+                if (preciseStarted)
+                {
+                    S.VnavmeshIPC.TryPathfindAndMoveTo(preciseDest, Player.CanFly);
+                    lastPreciseRetry = DateTime.Now;
+                }
+            }
+        }
 
         // 动态精化：狩猎怪进入对象表范围后立即把目的地改为其真实坐标（见 RefineNavTarget）
         RefineNavTarget();
@@ -1069,6 +1103,7 @@ internal static unsafe class HuntController
         navRefined = false;
         navStarted = false;
         notifiedNoHunt = false;
+        mountBlocked = false;
         dismountPending = false;
         dismountWarned = false;
         preciseStarted = false;

@@ -23,6 +23,15 @@ public static unsafe class TaskMount
             return true;
         }
 
+        // 战斗/咏唱中无法上坐骑：返回 false 继续等待。
+        // 若不先挡掉，下面 GetActionStatus 的检查在战斗中同样返回非 0，
+        // 会被误判为「区域禁止骑乘」而直接放弃——击杀狩猎怪后脱战标记会持续数秒，
+        // 正是「未上坐骑就进入寻路、原地发呆」的元凶。
+        if (Svc.Condition[ConditionFlag.InCombat] || Svc.Condition[ConditionFlag.Casting])
+        {
+            return false;
+        }
+
         if (Svc.Condition[ConditionFlag.MountOrOrnamentTransition] || Svc.Condition[ConditionFlag.Casting])
         {
             EzThrottler.Throttle("WYCheckMount", 2000, true);
