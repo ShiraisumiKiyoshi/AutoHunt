@@ -214,8 +214,10 @@ internal static class ChatMessageHandler
         if (pendingSwitch != 0)
         {
             InstanceController.ConsumePendingSwitch();
+            // 坐标必须暂存：切区完成后由主循环继续前往该坐标。
+            // 不暂存的话切完区没有任何寻路目标，表现为"切区/换图后不去车头坐标"。
+            P.HeldCoordinate = tp;
             // 传送到目标坐标最近的水晶，到达后切换副本区
-            // 标记到达后需要切换副本区
             P.TeleportTo = new ArrivalData
             {
                 Aetheryte = nearest,

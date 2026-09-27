@@ -310,6 +310,10 @@ internal static unsafe class HuntController
                         // 本地图最后一个区（回绕到 1）不立即切——等车头的下一地图坐标，
                         // 随传送把"到新图切 1 号区"带过去，避免原地切回 1 号区空转。
                         InstanceController.ConsumePendingSwitch();
+                        // 标记切换进行中：切换期间车头发来的坐标会被暂存（ChatMessageHandler），
+                        // 切区完成后由主循环统一消费，避免与切换任务冲突
+                        P.SwitchInProgress = true;
+                        P.SwitchStartTime = DateTime.Now;
                         Notify.Info($"已击杀满，立即切换到 {pendingSwitch} 号副本区…");
                         TaskEnsureInstance.Enqueue(pendingSwitch);
                     }

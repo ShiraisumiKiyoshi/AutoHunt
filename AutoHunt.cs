@@ -277,6 +277,17 @@ public unsafe class AutoHunt : IDalamudPlugin
             else
             {
                 Notify.Error($"当前地图不可切换副本区，直接前往坐标。");
+                // 不切区也要继续执行暂存的车头坐标（保证"一定去到车头坐标"）
+                var heldNow = HeldCoordinate;
+                HeldCoordinate = null;
+                if (heldNow != null)
+                {
+                    HuntController.OnNewCoordinate(heldNow);
+                }
+                else
+                {
+                    HuntController.OnArrived();
+                }
             }
             // 切区完成后，HuntController 继续等待/前往车头坐标
             return;
