@@ -33,12 +33,19 @@ internal static unsafe class InstanceController
     /// <summary>击杀满后等待车头新坐标再切换的目标副本区号；0 = 无待切换</summary>
     private static int pendingSwitchInstance = 0;
 
+    /// <summary>pendingSwitchInstance 是否为本地图最后一个区的回绕（current≥count，next=1）。
+    /// 回绕时不能立即切区——应等待车头发下一地图坐标，把"到新图切 1 号区"随传送带上；
+    /// 只有非回绕（同图还有下一个区）才允许击杀满后立即切换。</summary>
+    private static bool pendingSwitchImmediateOk = false;
+
     // 缓存的副本区信息（避免 UI / 高频逻辑反复调 IPC）
     private static int cachedInstanceCount = 0;
     private static int cachedCurrentInstance = 0;
 
     public static int KillCount => killCount;
     public static int PendingSwitchInstance => pendingSwitchInstance;
+    /// <summary>击杀满后是否允许立即切换副本区（同图还有下一个区）</summary>
+    public static bool PendingSwitchImmediateOk => pendingSwitchImmediateOk;
     public static int CachedInstanceCount => cachedInstanceCount;
     public static int CachedCurrentInstance => cachedCurrentInstance;
 
@@ -63,6 +70,7 @@ internal static unsafe class InstanceController
         // 手动传送/切图后，"击杀满等待新坐标切区"的计划已过期：
         // 不清除的话 ZoneCleared 恒为 true，到达结束地图会立刻误触发解散跨区
         pendingSwitchInstance = 0;
+        pendingSwitchImmediateOk = false;
         // 注意：首次进图"保证 1 号副本区"的检测不在事件里做——
         // TerritoryChanged 触发瞬间（读图中）副本区数据尚未就绪，GetInstanceCount 返回 1，
         // 在这里判定会错过时机且不会重试；改由 Update() 每秒重试直到读到有效数据。
@@ -105,6 +113,7 @@ internal static unsafe class InstanceController
     {
         var n = pendingSwitchInstance;
         pendingSwitchInstance = 0;
+        pendingSwitchImmediateOk = false;
         return n;
     }
 
@@ -129,6 +138,7 @@ internal static unsafe class InstanceController
                 // 副本区已变化（含手动切换）：原计划的切区目标作废，
                 // 否则僵尸 pendingSwitch 会让 ZoneCleared 恒为 true（结束地图误解散）
                 pendingSwitchInstance = 0;
+                pendingSwitchImmediateOk = false;
             }
         }
 
@@ -301,10 +311,17 @@ internal static unsafe class InstanceController
         killCount = 0;
         // Lifestream 学习到的该地图副本区总数（未学习过为 0）；已学到时用于回绕到 1 号区
         var count = S.LifestreamIPC.GetInstanceCount();
-        var next = (count > 1 && current >= count) ? 1 : current + 1;
+        bool wrap = count > 1 && current >= count;
+        var next = wrap ? 1 : current + 1;
         pendingSwitchInstance = next;
+        // 仅当同图还有下一个区时才允许击杀满后立即切换；
+        // 最后一个区（回绕）必须等车头的下一地图坐标随传送切区
+        pendingSwitchImmediateOk = count > 1 && current < count;
 
-        Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，等待车头发送新坐标后切换到 {next} 号副本区…");
+        if (pendingSwitchImmediateOk)
+            Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，即将切换到 {next} 号副本区…");
+        else
+            Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，等待车头前往下一地图后切换到 {next} 号副本区…");
     }
 
     /// <summary>重置副本区记录（/ah reset）。</summary>
@@ -314,6 +331,7 @@ internal static unsafe class InstanceController
         killCount = 0;
         pendingEnsureInstanceOne = false;
         pendingSwitchInstance = 0;
+        pendingSwitchImmediateOk = false;
         engagedMobIds.Clear();
         countedMobIds.Clear();
         skippedMobIds.Clear();

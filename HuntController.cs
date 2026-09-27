@@ -304,9 +304,11 @@ internal static unsafe class HuntController
                             OnNewCoordinate(qt); // 此时怪已死亡、停止输出已执行，直接进入新坐标流程
                         }
                     }
-                    else if (pendingSwitch != 0 && !P.TaskManager.IsBusy)
+                    else if (pendingSwitch != 0 && InstanceController.PendingSwitchImmediateOk && !P.TaskManager.IsBusy)
                     {
-                        // 击杀数已满且暂无新坐标：立即切换副本区，不再苦等车头发坐标
+                        // 击杀满且同图还有下一个区：立即切换，不再苦等车头发坐标。
+                        // 本地图最后一个区（回绕到 1）不立即切——等车头的下一地图坐标，
+                        // 随传送把"到新图切 1 号区"带过去，避免原地切回 1 号区空转。
                         InstanceController.ConsumePendingSwitch();
                         Notify.Info($"已击杀满，立即切换到 {pendingSwitch} 号副本区…");
                         TaskEnsureInstance.Enqueue(pendingSwitch);
@@ -744,25 +746,24 @@ internal static unsafe class HuntController
         CurrentTargetName = target.Name.TextValue;
         CurrentTargetHpPercent = target.CurrentHp / (float)target.MaxHp * 100f;
 
-        // 悬停高度校正：已选中目标后，若悬停高度超过 目标Y + ZOffset + 8m（估算偏差或回退锚点不准），
-        // 持续下调到目标正上方 ZOffset 高度，保证目标始终在可选中/可输出范围内。
-        // 仅在怪仍在附近（水平 <20m）时校正：怪被其他玩家吸引仇恨游走时不去追赶，
-        // 原地悬停等它回来（车头会重新播报位置）。
-        // 注意：血量已达标时不校正——进入下坐骑阶段后不能再有自身移动指令
-        // （BossMod 等躲避插件会在骑乘状态移动角色，自身寻路会加剧干扰下坐骑）。
-        float hoverMobDistXZ = Vector2.Distance(
-            new Vector2(Player.Position.X, Player.Position.Z),
-            new Vector2(target.Position.X, target.Position.Z));
+        // 悬停跟随：骑乘悬停期间持续跟随目标移动，始终保持在目标上方 ZOffset 高度，
+        // 直到血量到达阈值再下坐骑输出（怪被其他玩家吸引仇恨游走时同样跟随，
+        // 保证目标始终在可选中/可输出范围内）。
+        // 距离悬停点超过 5m 才重新寻路（每秒最多一次），避免每帧重算。
+        // 注意：血量已达标后不再移动——进入下坐骑阶段后不能再有自身移动指令
+        // （飞行中按坐骑键触发自动降落，任何移动输入都会打断降落）。
         if (Player.Mounted && Player.CanFly
             && CurrentTargetHpPercent > P.Config.DismountHpPercent
-            && hoverMobDistXZ < 20f
-            && Player.Position.Y - target.Position.Y > P.Config.ZOffset + 8f
             && S.VnavmeshIPC.GetIsReady()
-            && EzThrottler.Throttle("WYHoverAdjust", 3000))
+            && EzThrottler.Throttle("WYHoverFollow", 1000))
         {
             var hoverPoint = new Vector3(target.Position.X, target.Position.Y + P.Config.ZOffset, target.Position.Z);
-            S.VnavmeshIPC.TryPathfindAndMoveTo(hoverPoint, true);
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停过高(ΔY={Player.Position.Y - target.Position.Y:0.0}m)，下调至目标上方 {P.Config.ZOffset:0}m");
+            float hoverDist = Vector3.Distance(Player.Position, hoverPoint);
+            if (hoverDist > 5f)
+            {
+                S.VnavmeshIPC.TryPathfindAndMoveTo(hoverPoint, true);
+                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停跟随目标 (偏差 {hoverDist:0.0}m)");
+            }
         }
 
         // 血量低于阈值 → 下坐骑准备输出
