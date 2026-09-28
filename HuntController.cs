@@ -304,11 +304,12 @@ internal static unsafe class HuntController
                             OnNewCoordinate(qt); // 此时怪已死亡、停止输出已执行，直接进入新坐标流程
                         }
                     }
-                    else if (pendingSwitch != 0 && InstanceController.PendingSwitchImmediateOk && !P.TaskManager.IsBusy)
+                    else if (pendingSwitch != 0 && InstanceController.PendingSwitchImmediateOk)
                     {
                         // 击杀满且同图还有下一个区：立即切换，不再苦等车头发坐标。
                         // 本地图最后一个区（回绕到 1）不立即切——等车头的下一地图坐标，
                         // 随传送把"到新图切 1 号区"带过去，避免原地切回 1 号区空转。
+                        if (P.TaskManager.IsBusy) return; // 任务链未结束：等待，不能落进 Reset 把切区计划晾死
                         InstanceController.ConsumePendingSwitch();
                         // 标记切换进行中：切换期间车头发来的坐标会被暂存（ChatMessageHandler），
                         // 切区完成后由主循环统一消费，避免与切换任务冲突

@@ -305,18 +305,25 @@ internal static unsafe class InstanceController
         if (killCount < P.Config.KillsPerInstance) return;
         if (pendingSwitchInstance != 0) return; // 已在等待切换
 
-        var current = S.LifestreamIPC.GetCurrentInstanceNumber();
+        // 当前区号必须用原生 InstanceId（即读即得、可靠）。
+        // 不要用 Lifestream 的 GetCurrentInstanceNumber——它依赖内部状态，可能返回 0，
+        // 一旦返回 0 这里会静默 return：不设置切区计划、无任何提示，
+        // 且 killCount 已达满值不再重新触发，表现为"击杀满后永远不切副本区"。
+        var current = GetNativeInstanceId();
         if (current == 0) return; // 原生判定：当前地图不可切副本区
 
         killCount = 0;
-        // Lifestream 学习到的该地图副本区总数（未学习过为 0）；已学到时用于回绕到 1 号区
+        // Lifestream 学习到的该地图副本区总数（未学习过为 0）
         var count = S.LifestreamIPC.GetInstanceCount();
+        // 已知总数且当前已在最后一个区 → 回绕到 1 号区并等待车头的下一地图坐标；
+        // 总数未知（0，Lifestream 未学习过该地图）时按"还有下一个区"尝试 current+1：
+        // 若实际已是最后一个区，Lifestream 切换会静默失败（无副作用），
+        // 后续车头坐标驱动的换图切区照常工作，不会卡死
         bool wrap = count > 1 && current >= count;
         var next = wrap ? 1 : current + 1;
         pendingSwitchInstance = next;
-        // 仅当同图还有下一个区时才允许击杀满后立即切换；
-        // 最后一个区（回绕）必须等车头的下一地图坐标随传送切区
-        pendingSwitchImmediateOk = count > 1 && current < count;
+        // 仅当确认处于最后一个区（回绕）时才等待车头坐标；其余情况击杀满后立即切换
+        pendingSwitchImmediateOk = !wrap;
 
         if (pendingSwitchImmediateOk)
             Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，即将切换到 {next} 号副本区…");
