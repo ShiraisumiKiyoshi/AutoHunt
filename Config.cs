@@ -89,7 +89,7 @@ public class Config : IEzConfig
 
     // ===== 跨区（数据中心传送） =====
 
-    /// <summary>启用跨区功能（取消车头后按狩猎时间表自动跨区）</summary>
+    /// <summary>启用跨区功能（结束地图击杀满或手动取消全部车头时自动跨区）</summary>
     public bool CrossRegionEnable = false;
 
     /// <summary>跨区前传送到的城市：0=格里达尼亚新街（默认）1=利姆萨·罗敏萨下层甲板 2=乌尔达哈现世回廊</summary>
@@ -101,10 +101,10 @@ public class Config : IEzConfig
     /// <summary>跨区完成后自动获取车头（读取队员招募-怪物狩猎中的招募人并设为车头）</summary>
     public bool CrossRegionAutoFetchConductor = false;
 
-    /// <summary>自动取消车头：结束地图击杀满后自动取消全部车头</summary>
+    /// <summary>解散小队前自动取消车头（跨区流程内的可选步骤；结束地图击杀满自动触发跨区与此开关无关）</summary>
     public bool CrossRegionAutoCancelConductor = false;
 
-    /// <summary>结束地图水晶 ID（Aetheryte RowId），0=未选择（自动取消不生效）</summary>
+    /// <summary>结束地图水晶 ID（Aetheryte RowId），0=未选择（击杀满后不会自动触发跨区）</summary>
     public uint CrossRegionEndAetheryteId = 0;
 
     /// <summary>跨区完成后自动开启队员招募（需同时启用「启用一键创建队员招募」）</summary>

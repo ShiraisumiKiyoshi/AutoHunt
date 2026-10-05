@@ -7,7 +7,8 @@ namespace AutoHunt;
 
 /// <summary>
 /// 跨区（数据中心传送）控制器。
-/// 流程：取消车头 →（不在最近车次前 30 分钟内时等待）→ 解散小队（如在小队中）→ 传送到「跨区前传送到城市」
+/// 触发：结束地图击杀满（EndMapWatcher）或手动取消全部车头。
+/// 流程：（可选）取消车头 →（不在最近车次前 30 分钟内时等待）→ 解散小队（如在小队中）→ 传送到「跨区前传送到城市」
 /// → 跨区到狩猎时间表中「本地时间下一个时间点」对应的服务器（无需等待到点）
 /// → 传送到「跨区后传送到水晶」（可选）
 /// → 按招募标签配置自动开启队员招募（可选，需同时启用「启用一键创建队员招募」）。
@@ -16,7 +17,7 @@ namespace AutoHunt;
 /// </summary>
 internal static class CrossRegionController
 {
-    private enum Phase { Inactive, WaitSchedule, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, FetchConductors, CreatePF }
+    private enum Phase { Inactive, WaitSchedule, CancelConductors, DisbandParty, ToPreCity, DcTravel, ToPostCrystal, FetchConductors, CreatePF }
 
     private static Phase phase = Phase.Inactive;
     private static DateTime stepStart = DateTime.MinValue;
@@ -37,6 +38,7 @@ internal static class CrossRegionController
     {
         Phase.Inactive => "未运行",
         Phase.WaitSchedule => WaitStateText,
+        Phase.CancelConductors => "取消车头",
         Phase.DisbandParty => "解散小队",
         Phase.ToPreCity => $"前往跨区城市（{PreCityName}）",
         Phase.DcTravel => $"跨区传送中（→ {targetWorld}）",
@@ -47,7 +49,7 @@ internal static class CrossRegionController
     };
 
     /// <summary>跨区阶段进度链（操作条显示）：阶段名列表 + 当前阶段下标，-1 = 未运行。</summary>
-    internal static readonly string[] PhaseStepNames = { "等待车次", "解散小队", "传送城市", "跨区", "传送水晶", "获取车头", "开招募" };
+    internal static readonly string[] PhaseStepNames = { "等待车次", "取消车头", "解散小队", "传送城市", "跨区", "传送水晶", "获取车头", "开招募" };
 
     internal static (string[] Names, int Current) PhaseSteps
     {
@@ -56,12 +58,13 @@ internal static class CrossRegionController
             var cur = phase switch
             {
                 Phase.WaitSchedule => 0,
-                Phase.DisbandParty => 1,
-                Phase.ToPreCity => 2,
-                Phase.DcTravel => 3,
-                Phase.ToPostCrystal => 4,
-                Phase.FetchConductors => 5,
-                Phase.CreatePF => 6,
+                Phase.CancelConductors => 1,
+                Phase.DisbandParty => 2,
+                Phase.ToPreCity => 3,
+                Phase.DcTravel => 4,
+                Phase.ToPostCrystal => 5,
+                Phase.FetchConductors => 6,
+                Phase.CreatePF => 7,
                 _ => -1,
             };
             return (PhaseStepNames, cur);
@@ -148,7 +151,7 @@ internal static class CrossRegionController
             PluginLog.Information($"[AutoHunt] 跨区：进入等待车次阶段（最近车次 {t}，距开始跨区 {waitMin} 分钟）");
             return;
         }
-        phase = Phase.DisbandParty;
+        phase = Phase.CancelConductors;
         stepStart = DateTime.Now;
         wasBetweenAreas = false;
         targetWorld = "";
@@ -160,7 +163,7 @@ internal static class CrossRegionController
         lifestreamWasBusy = false;
         hadParty = false;
         PluginLog.Information($"[AutoHunt] 跨区流程启动：前城市={PreCityName}(地图{PreCity.Territory})，时间表{P.Config.CrossRegionSchedule.Count}条");
-        Notify.Info($"跨区流程已启动：先解散小队，之后传送至 {PreCityName} 跨区。");
+        Notify.Info($"跨区流程已启动：{(P.Config.CrossRegionAutoCancelConductor ? "先取消车头，之后" : "")}解散小队并传送至 {PreCityName} 跨区。");
     }
 
     /// <summary>停止并复位跨区流程。</summary>
@@ -222,6 +225,7 @@ internal static class CrossRegionController
             switch (phase)
             {
                 case Phase.WaitSchedule: UpdateWaitSchedule(); break;
+                case Phase.CancelConductors: UpdateCancelConductors(); break;
                 case Phase.DisbandParty: UpdateDisbandParty(); break;
                 case Phase.ToPreCity: UpdateToPreCity(); break;
                     case Phase.DcTravel: UpdateDcTravel(); break;
@@ -255,7 +259,7 @@ internal static class CrossRegionController
         {
             var t = pick.Value.time;
             Notify.Info($"跨区：已进入车次 {t / 60:00}:{t % 60:00} 的前 {ScheduleWindowMinutes} 分钟窗口，开始跨区流程。");
-            phase = Phase.DisbandParty;
+            phase = Phase.CancelConductors;
             stepStart = DateTime.Now;
             hadParty = false;
             return;
@@ -269,7 +273,26 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 1：解散小队 =====
+    // ===== 阶段 1：取消车头（可选步骤，开关不影响后续流程） =====
+
+    /// <summary>
+    /// 「自动取消车头」开启且存在车头时，在解散小队前先取消全部车头；
+    /// 关闭或没有车头则直接跳过本阶段进入解散小队——两种情况后续流程完全一致。
+    /// 注意此处清空车头不再回调 Begin（流程已在进行中），用 triggerCrossRegion: false 防止重入。
+    /// </summary>
+    private static void UpdateCancelConductors()
+    {
+        if (P.Config.CrossRegionAutoCancelConductor && Conductor.IsValid)
+        {
+            Notify.Info("跨区：按「自动取消车头」开关，解散小队前先取消全部车头。");
+            Conductor.ClearAll(triggerCrossRegion: false);
+        }
+        phase = Phase.DisbandParty;
+        stepStart = DateTime.Now;
+        hadParty = false;
+    }
+
+    // ===== 阶段 2：解散小队 =====
 
     private static void UpdateDisbandParty()
     {
@@ -330,7 +353,7 @@ internal static class CrossRegionController
         preTpAttempts = 0;
     }
 
-    // ===== 阶段 1：传送到跨区前城市 =====
+    // ===== 阶段 3：传送到跨区前城市 =====
 
     private static void UpdateToPreCity()
     {
@@ -411,7 +434,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 2：等待跨区传送完成 =====
+    // ===== 阶段 4：等待跨区传送完成 =====
 
     private static void UpdateDcTravel()
     {
@@ -448,7 +471,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 3：传送到跨区后水晶 =====
+    // ===== 阶段 5：传送到跨区后水晶 =====
 
     private static void UpdateToPostCrystal()
     {
@@ -511,7 +534,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 3.5：自动获取车头 =====
+    // ===== 阶段 6：自动获取车头 =====
 
     private static void UpdateFetchConductors()
     {
@@ -547,7 +570,7 @@ internal static class CrossRegionController
         }
     }
 
-    // ===== 阶段 4：自动开启招募 =====
+    // ===== 阶段 7：自动开启招募 =====
 
     private static void UpdateCreatePF()
     {

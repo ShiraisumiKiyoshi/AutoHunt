@@ -447,10 +447,10 @@ public class MainWindow : ConfigWindow
             anyWarn = true;
             Row(IcUser, ColGray, "未设置车头", "右键聊天玩家名「设为车头」，或点击「自动获取车头」");
         }
-        if (P.Config.CrossRegionAutoCancelConductor && P.Config.CrossRegionEndAetheryteId == 0)
+        if (P.Config.CrossRegionEnable && P.Config.CrossRegionEndAetheryteId == 0)
         {
             anyWarn = true;
-            Row(IcAlert, ColRed, "未选择结束地图", "「自动取消车头」已开启但结束地图为空，暂不生效", tag: "需配置", tagCol: ColRed);
+            Row(IcAlert, ColRed, "未选择结束地图", "跨区功能已开启但结束地图为空，击杀满后不会自动触发跨区", tag: "需配置", tagCol: ColRed);
         }
         if (!anyWarn)
             Row(IcAlert, ColGreen, "一切正常", "无待处理提醒", border: C(61, 220, 132, 90));
@@ -694,13 +694,13 @@ public class MainWindow : ConfigWindow
         Sect("跨区流程");
         RowBegin();
         ToggleRow("启用跨区功能",
-            "取消车头 → 解散小队 → 传送城市 → 跨区 → 传送水晶 →（可选）获取车头 →（可选）开招募",
+            "结束地图击杀满自动触发 →（可选）取消车头 → 解散小队 → 传送城市 → 跨区 → 传送水晶 →（可选）获取车头 →（可选）开招募",
             "##tCross", ref P.Config.CrossRegionEnable);
         ToggleRow("跨区完成后自动获取车头",
             "读取队员招募-怪物狩猎中的招募人并设为车头（已有车头时跳过）",
             "##tCrossFetch", ref P.Config.CrossRegionAutoFetchConductor);
-        ToggleRow("自动取消车头（结束地图击杀满后）",
-            "结束地图击杀满时全清并衔接跨区",
+        ToggleRow("解散小队前自动取消车头",
+            "开启后：解散小队前先取消全部车头；关闭则直接解散小队——均不影响跨区流程",
             "##tCrossCancel", ref P.Config.CrossRegionAutoCancelConductor);
         ToggleRow("自动开启招募",
             "跨区流程完成后，按「招募」页配置自动创建队员招募",
@@ -735,18 +735,16 @@ public class MainWindow : ConfigWindow
         ImGui.Dummy(new Vector2(0, 6));
         BoldLabel("结束地图");
         DrawEndMapCombo("##crossend", P.Config.CrossRegionEndAetheryteId,
-            P.Config.CrossRegionAutoCancelConductor
-                ? "自动取消车头的触发地图；当前地图与所选地图相同且击杀满时触发"
-                : "先开启「自动取消车头」后此地图才会生效；按地图名称选择",
+            "跨区自动触发的地图；当前地图与所选地图相同且击杀满时自动触发跨区（与「解散小队前自动取消车头」开关无关），按地图名称选择",
             v => { P.Config.CrossRegionEndAetheryteId = v; EzConfig.Save(); });
-        if (P.Config.CrossRegionAutoCancelConductor && P.Config.CrossRegionEndAetheryteId == 0)
-            ImGui.TextColored(ColAmber, "未选择结束地图，自动取消车头不生效");
+        if (P.Config.CrossRegionEnable && P.Config.CrossRegionEndAetheryteId == 0)
+            ImGui.TextColored(ColAmber, "未选择结束地图，击杀满后不会自动触发跨区");
         RowEnd();
 
         // 狩猎时间表
         Sect("狩猎时间表 — 最近车次前 30 分钟内自动跨区，其余时间等待");
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("取消车头后：若本地时间处于某车次前 30 分钟内，立即跨往该车次对应的服务器；否则等待最近车次进入前 30 分钟窗口再跨区（例：本地 18:31，19:00 车次满足条件）。服务器列表为当前角色所在大区内的全部服务器");
+            ImGui.SetTooltip("结束地图击杀满或手动取消全部车头后触发：若本地时间处于某车次前 30 分钟内，立即跨往该车次对应的服务器；否则等待最近车次进入前 30 分钟窗口再跨区（例：本地 18:31，19:00 车次满足条件）。服务器列表为当前角色所在大区内的全部服务器");
         var schedule = P.Config.CrossRegionSchedule;
         var nextMinutes = GetNextScheduleMinutes();
         for (var i = 0; i < schedule.Count; i++)

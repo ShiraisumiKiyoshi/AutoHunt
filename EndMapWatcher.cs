@@ -1,8 +1,9 @@
 namespace AutoHunt;
 
 /// <summary>
-/// 结束地图监控器：「自动取消车头」开关开启时，若当前地图为结束地图且本区击杀数已满，
-/// 自动取消全部车头；跨区功能开启时由 ClearAll 衔接跨区流程。
+/// 结束地图监控器：当前地图为结束地图且本区击杀数已满时，自动触发跨区流程。
+/// 触发与「自动取消车头」开关无关——该开关仅决定跨区流程内解散小队前是否先取消全部车头
+/// （CancelConductors 阶段），开关关闭时流程照常执行：解散小队 → 传送城市 → 跨区 → 传送水晶。
 /// </summary>
 internal static class EndMapWatcher
 {
@@ -22,10 +23,9 @@ internal static class EndMapWatcher
     public static void Update()
     {
         if (handled) return;
-        if (!P.Config.Enabled || !P.Config.CrossRegionAutoCancelConductor) return;
+        if (!P.Config.Enabled || !P.Config.CrossRegionEnable) return;
         var endId = P.Config.CrossRegionEndAetheryteId;
-        if (endId == 0) return; // 未选择结束地图：开关不生效
-        if (!Conductor.IsValid) return;
+        if (endId == 0) return; // 未选择结束地图：无触发地图，不生效
         if (CrossRegionController.Active || ConductorFetchService.Running || P.TaskManager.IsBusy) return;
         if (!InstanceController.ZoneCleared) return;
 
@@ -34,8 +34,8 @@ internal static class EndMapWatcher
         if (Svc.ClientState.TerritoryType != endTerritory) return;
 
         handled = true;
-        Notify.Info($"本区击杀已满（{InstanceController.KillCount}/{P.Config.KillsPerInstance}），自动取消全部车头。");
-        Conductor.ClearAll();
+        Notify.Info($"本区击杀已满（{InstanceController.KillCount}/{P.Config.KillsPerInstance}），自动触发跨区流程。");
+        CrossRegionController.Begin();
     }
 
     /// <summary>查询水晶所在的地图（TerritoryType RowId），带缓存。</summary>

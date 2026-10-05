@@ -71,15 +71,15 @@ internal static class Conductor
         return true;
     }
 
-    /// <summary>取消全部车头（跨区功能开启时自动衔接跨区流程）。</summary>
-    public static void ClearAll()
+    /// <summary>取消全部车头（triggerCrossRegion=true 且跨区功能开启时自动衔接跨区流程；跨区流程内部清车头传 false 防止重入）。</summary>
+    public static void ClearAll(bool triggerCrossRegion = true)
     {
         if (!IsValid) return;
         P.Config.Conductors.Clear();
         EzConfig.Save();
         Svc.Targets.FocusTarget = null;
         Notify.Info("已取消全部车头设置。");
-        if (P.Config.CrossRegionEnable) CrossRegionController.Begin();
+        if (triggerCrossRegion && P.Config.CrossRegionEnable) CrossRegionController.Begin();
     }
 
     /// <summary>在对象表中查找名字匹配的车头玩家。</summary>
