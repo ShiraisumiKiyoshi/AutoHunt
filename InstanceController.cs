@@ -38,6 +38,12 @@ internal static unsafe class InstanceController
     /// 只有非回绕（同图还有下一个区）才允许击杀满后立即切换。</summary>
     private static bool pendingSwitchImmediateOk = false;
 
+    /// <summary>pendingSwitchInstance 被设置的时刻（用于兜底触发判断）。</summary>
+    private static DateTime pendingSwitchSetAt = DateTime.MinValue;
+
+    /// <summary>击杀满后等待多久仍无人消费切区计划（无新车头坐标且战斗流程早已结束）就兜底主动切区。</summary>
+    private const double PendingSwitchStuckSeconds = 15.0;
+
     // 缓存的副本区信息（避免 UI / 高频逻辑反复调 IPC）
     private static int cachedInstanceCount = 0;
     private static int cachedCurrentInstance = 0;
@@ -71,6 +77,7 @@ internal static unsafe class InstanceController
         // 不清除的话 ZoneCleared 恒为 true，到达结束地图会立刻误触发解散跨区
         pendingSwitchInstance = 0;
         pendingSwitchImmediateOk = false;
+        pendingSwitchSetAt = DateTime.MinValue;
         // 注意：首次进图"保证 1 号副本区"的检测不在事件里做——
         // TerritoryChanged 触发瞬间（读图中）副本区数据尚未就绪，GetInstanceCount 返回 1，
         // 在这里判定会错过时机且不会重试；改由 Update() 每秒重试直到读到有效数据。
@@ -114,6 +121,7 @@ internal static unsafe class InstanceController
         var n = pendingSwitchInstance;
         pendingSwitchInstance = 0;
         pendingSwitchImmediateOk = false;
+        pendingSwitchSetAt = DateTime.MinValue;
         return n;
     }
 
@@ -127,18 +135,32 @@ internal static unsafe class InstanceController
         if (uiState != null)
         {
             var instId = uiState->PublicInstance.InstanceId;
-            if (instId != lastInstanceId)
+            // ⚠️ instId==0 只代表「当前地图不可切副本区」或「读图瞬间数据未就绪」，
+            // 并不代表真的换了副本区。旧代码对 0 也走"已变化"分支，会把刚攒够的
+            // 击杀计数与待切换计划一起清零（典型症状：击杀满却不切区、计数莫名归零）。
+            // 因此这里只认非 0 的变化，并且只有从已知区号变化时才做重置。
+            if (instId != 0 && instId != lastInstanceId)
             {
+                var prev = lastInstanceId;
                 lastInstanceId = instId;
-                killCount = 0;
-                countedMobIds.Clear();
-                skippedMobIds.Clear();
-                engagedMobIds.Clear();
-                markedMobIds.Clear();
-                // 副本区已变化（含手动切换）：原计划的切区目标作废，
-                // 否则僵尸 pendingSwitch 会让 ZoneCleared 恒为 true（结束地图误解散）
-                pendingSwitchInstance = 0;
-                pendingSwitchImmediateOk = false;
+                if (prev != 0)
+                {
+                    killCount = 0;
+                    countedMobIds.Clear();
+                    skippedMobIds.Clear();
+                    engagedMobIds.Clear();
+                    markedMobIds.Clear();
+                    // 副本区已变化（含手动切换）：原计划的切区目标作废，
+                    // 否则僵尸 pendingSwitch 会让 ZoneCleared 恒为 true（结束地图误解散）
+                    pendingSwitchInstance = 0;
+                    pendingSwitchImmediateOk = false;
+                    pendingSwitchSetAt = DateTime.MinValue;
+                    PluginLog.Information($"[AutoHunt] 副本区已切换：{prev} → {instId}，击杀计数与待切换计划已重置");
+                }
+                else
+                {
+                    PluginLog.Information($"[AutoHunt] 进入副本区 {instId}，击杀计数从 0 开始");
+                }
             }
         }
 
@@ -155,6 +177,26 @@ internal static unsafe class InstanceController
             cachedCurrentInstance = S.LifestreamIPC.GetCurrentInstanceNumber();
         }
 
+        // 兜底触发切区：击杀已满 + 允许立即切区，但超过 15 秒仍无人消费该计划
+        // （既没有车头发来新坐标，HuntController 也早已回到 Idle —— 典型是击杀发生在
+        //  插件战斗流程之外）。没有这一步，pendingSwitch 会变成僵尸、表现为"击杀满却不切区"。
+        if (pendingSwitchInstance != 0 && pendingSwitchImmediateOk && !P.SwitchInProgress
+            && pendingSwitchSetAt != DateTime.MinValue
+            && (DateTime.Now - pendingSwitchSetAt).TotalSeconds > PendingSwitchStuckSeconds
+            && HuntController.CurrentState == HuntController.State.Idle
+            && !P.TaskManager.IsBusy
+            && Player.Interactable && IsScreenReady()
+            && !Svc.Condition[ConditionFlag.BetweenAreas] && !Svc.Condition[ConditionFlag.BetweenAreas51]
+            && IsInstancedAreaNow())
+        {
+            var fallbackTarget = ConsumePendingSwitch();
+            P.SwitchInProgress = true;
+            P.SwitchStartTime = DateTime.Now;
+            Notify.Info($"击杀已满且长时间未收到新车头坐标，立即切换到 {fallbackTarget} 号副本区…");
+            PluginLog.Information($"[AutoHunt] 兜底触发副本区切换：击杀满后 {PendingSwitchStuckSeconds:0} 秒无新坐标且战斗流程空闲 → 目标 {fallbackTarget} 号区");
+            TaskEnsureInstance.Enqueue(fallbackTarget);
+        }
+
         // 首次进入可切副本区的地图 → 保证 1 号副本区
         // 读图后副本区数据延迟就绪，这里每秒重试；用原生判定（Lifestream 的
         // GetInstanceCount 依赖其"学习"的地图数据，未学习过的地图返回 0，不可靠）
@@ -169,7 +211,7 @@ internal static unsafe class InstanceController
                 {
                     lastWorldId = wid;
                     ensuredTerritories.Clear();
-                    if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 检测到换服（WorldId={wid}），已重置各地图的首次进图副本区保证记录");
+                    Dbg.Log($" 检测到换服（WorldId={wid}），已重置各地图的首次进图副本区保证记录");
                 }
             }
 
@@ -255,6 +297,32 @@ internal static unsafe class InstanceController
             }
         }
 
+        // 调试：每 3 秒汇总一次扫描结果。"击杀满却不切区"绝大多数是这里没数到怪，
+        // 这一行能直接区分「参与判定没命中」/「不是狩猎怪」/「副本区号读不到」三种情况。
+        if (P.Config.Debug && EzThrottler.Throttle("WYScanDiag", 3000))
+        {
+            var aliveEngaged = 0;
+            var huntAlive = 0;
+            var deadPending = 0;
+            foreach (var o in Svc.Objects)
+            {
+                if (o is not IBattleNpc b) continue;
+                if (b.IsDead)
+                {
+                    if (engagedMobIds.Contains(b.GameObjectId)
+                        && !countedMobIds.Contains(b.GameObjectId)
+                        && !skippedMobIds.Contains(b.GameObjectId)) deadPending++;
+                    continue;
+                }
+                if (engagedMobIds.Contains(b.GameObjectId)) aliveEngaged++;
+                if (HuntMobDatabase.IsHuntMob(b.NameId, P.Config.IncludeBRank)) huntAlive++;
+            }
+            Dbg.Log($"击杀扫描汇总: 参与中存活 {aliveEngaged} 只 / 待计数尸体 {deadPending} 具 / 视野内狩猎怪 {huntAlive} 只"
+                + $" | 已计数 {killCount}/{P.Config.KillsPerInstance} | 待切换={(pendingSwitchInstance == 0 ? "无" : pendingSwitchInstance + " 号区")}"
+                + $" | 原生副本区={GetNativeInstanceId()} | Lifestream区号={cachedCurrentInstance}/共{cachedInstanceCount}区"
+                + $" | 当前目标={(Svc.Targets.Target?.Name.TextValue ?? "无")} | HuntState={HuntController.CurrentState}");
+        }
+
         // 防止集合无限增长：定期清理已消失的对象
         if (countedMobIds.Count > 200)
         {
@@ -293,24 +361,36 @@ internal static unsafe class InstanceController
         if (!countAsHunt)
         {
             if (mobId != 0) skippedMobIds.Add(mobId);
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 非狩猎怪击杀，不计入副本区计数 (NameId={nameId})");
+            Dbg.Log($" 非狩猎怪击杀，不计入副本区计数 (NameId={nameId})");
             return;
         }
 
         if (mobId != 0) countedMobIds.Add(mobId);
         killCount++;
-        if (P.Config.Debug) PluginLog.Debug($"副本区击杀计数: {killCount}/{P.Config.KillsPerInstance} (NameId={nameId}, forceCount={forceCount})");
+        // 击杀计数是低频且最关键的事件：无条件写 Information 级日志（不受 Dalamud 日志级别影响）
+        PluginLog.Information($"[AutoHunt] 副本区击杀计数: {killCount}/{P.Config.KillsPerInstance} (NameId={nameId}, forceCount={forceCount})");
 
         if (!P.Config.AutoInstance) return;
         if (killCount < P.Config.KillsPerInstance) return;
-        if (pendingSwitchInstance != 0) return; // 已在等待切换
+        if (pendingSwitchInstance != 0)
+        {
+            PluginLog.Information($"[AutoHunt] 击杀已满但已有待切换计划（{pendingSwitchInstance} 号区），本次不重复设置");
+            return; // 已在等待切换
+        }
 
         // 当前区号必须用原生 InstanceId（即读即得、可靠）。
         // 不要用 Lifestream 的 GetCurrentInstanceNumber——它依赖内部状态，可能返回 0，
         // 一旦返回 0 这里会静默 return：不设置切区计划、无任何提示，
         // 且 killCount 已达满值不再重新触发，表现为"击杀满后永远不切副本区"。
         var current = GetNativeInstanceId();
-        if (current == 0) return; // 原生判定：当前地图不可切副本区
+        if (current == 0)
+        {
+            // 原生读不到副本区号：要么当前地图确实不可切区，要么 UIState 尚未就绪。
+            // 绝不能静默返回——否则 killCount 会停在满值、再无任何提示与后续机会。
+            PluginLog.Warning($"[AutoHunt] 击杀已满但读不到原生副本区号（InstanceId=0，地图 {Svc.ClientState.TerritoryType}），无法安排切区");
+            if (P.Config.Debug) Dbg.Warn("原生 InstanceId=0：当前地图可能不可切副本区，或 UIState 尚未就绪；本次不切区");
+            return;
+        }
 
         killCount = 0;
         // Lifestream 学习到的该地图副本区总数（未学习过为 0）
@@ -324,6 +404,10 @@ internal static unsafe class InstanceController
         pendingSwitchInstance = next;
         // 仅当确认处于最后一个区（回绕）时才等待车头坐标；其余情况击杀满后立即切换
         pendingSwitchImmediateOk = !wrap;
+        pendingSwitchSetAt = DateTime.Now;
+
+        PluginLog.Information($"[AutoHunt] 击杀已满：当前 {current} 号区（Lifestream 已知共 {count} 区）→ 计划切到 {next} 号区，"
+            + (pendingSwitchImmediateOk ? "立即切换" : "等待车头下一地图坐标"));
 
         if (pendingSwitchImmediateOk)
             Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，即将切换到 {next} 号副本区…");
@@ -339,6 +423,7 @@ internal static unsafe class InstanceController
         pendingEnsureInstanceOne = false;
         pendingSwitchInstance = 0;
         pendingSwitchImmediateOk = false;
+        pendingSwitchSetAt = DateTime.MinValue;
         engagedMobIds.Clear();
         countedMobIds.Clear();
         skippedMobIds.Clear();

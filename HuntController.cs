@@ -90,7 +90,7 @@ internal static unsafe class HuntController
             && target.TerritoryId == pendingTarget.TerritoryId
             && Vector2.Distance(target.WorldXZ, pendingTarget.WorldXZ) < 50f)
         {
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 忽略重复坐标（与当前目标距离 < 50m，不打断当前战斗）: ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})");
+            Dbg.Log($" 忽略重复坐标（与当前目标距离 < 50m，不打断当前战斗）: ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})");
             return;
         }
 
@@ -110,7 +110,7 @@ internal static unsafe class HuntController
                 queuedTarget = target; // 最新坐标覆盖旧缓存（车头总是发最新目标）
                 if (!same)
                     Notify.Info($"当前狩猎怪未死亡，新坐标已缓存 ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})，怪物死亡后自动前往。");
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 缓存车头新坐标（当前怪存活，不打断战斗）: ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0}) Territory={target.TerritoryId}");
+                Dbg.Log($" 缓存车头新坐标（当前怪存活，不打断战斗）: ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0}) Territory={target.TerritoryId}");
                 return;
             }
         }
@@ -165,7 +165,7 @@ internal static unsafe class HuntController
                 : null;
             var distAeth = aethPos != null ? Vector2.Distance(aethPos.Value, target.WorldXZ) : 0f;
 
-            if (P.Config.Debug) PluginLog.Debug($"同图距离: 自己→目标 {distSelf:0.0}m, 水晶→目标 {distAeth:0.0}m, 差值 {distSelf - distAeth:0.0}m");
+            Dbg.Log($"同图距离: 自己→目标 {distSelf:0.0}m, 水晶→目标 {distAeth:0.0}m, 差值 {distSelf - distAeth:0.0}m");
 
             if (distSelf > distAeth + P.Config.TeleportDistanceThreshold)
             {
@@ -232,7 +232,7 @@ internal static unsafe class HuntController
                         if (!Player.Mounted) mountBlocked = true;
                     }
                     // 超时或该区域禁止骑乘 → 照样进入寻路（vnavmesh 会地面寻路）
-                    if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 上坐骑结束: Mounted={Player.Mounted}");
+                    Dbg.Log($" 上坐骑结束: Mounted={Player.Mounted}");
                 }
 
                 // 进入寻路
@@ -280,7 +280,7 @@ internal static unsafe class HuntController
                         if (pendingTarget != null && qt.TerritoryId == pendingTarget.TerritoryId
                             && Vector2.Distance(qt.WorldXZ, pendingTarget.WorldXZ) < 50f)
                         {
-                            if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 丢弃已击杀怪的重复缓存坐标");
+                            Dbg.Log(" 丢弃已击杀怪的重复缓存坐标");
                         }
                         else if (pendingSwitch != 0)
                         {
@@ -296,6 +296,7 @@ internal static unsafe class HuntController
                                 Territory = qt.TerritoryId,
                                 SwitchInstance = pendingSwitch,
                             };
+                            PluginLog.Information($"[AutoHunt] 击杀满 + 缓存坐标触发切区：前往下一坐标途中切到 {pendingSwitch} 号副本区");
                             Notify.Info($"已击杀满，前往下一坐标途中切换到 {pendingSwitch} 号副本区…");
                             Reset();
                         }
@@ -315,6 +316,7 @@ internal static unsafe class HuntController
                         // 切区完成后由主循环统一消费，避免与切换任务冲突
                         P.SwitchInProgress = true;
                         P.SwitchStartTime = DateTime.Now;
+                        PluginLog.Information($"[AutoHunt] 击杀满且战斗流程结束：立即切到 {pendingSwitch} 号副本区");
                         Notify.Info($"已击杀满，立即切换到 {pendingSwitch} 号副本区…");
                         TaskEnsureInstance.Enqueue(pendingSwitch);
                     }
@@ -364,7 +366,7 @@ internal static unsafe class HuntController
             {
                 // 补骑成功：重启当前寻路。未骑乘时启动的飞行路径大概率已停摆，
                 // flyflag 模式重新插旗并执行命令，IPC 模式重算路径，精确悬停立即重发。
-                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 寻路途中补骑成功，重启当前寻路");
+                Dbg.Log(" 寻路途中补骑成功，重启当前寻路");
                 S.VnavmeshIPC.StopPath();
                 navStarted = false;
                 if (preciseStarted)
@@ -405,7 +407,7 @@ internal static unsafe class HuntController
                 Chat.ExecuteCommand(P.Config.FlyFlagCommand);
                 lastFlyFlagTime = DateTime.Now;
                 Notify.Info($"已插旗，执行 {P.Config.FlyFlagCommand} 飞向坐标…");
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 执行 {P.Config.FlyFlagCommand}，目标世界坐标 ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})");
+                Dbg.Log($" 执行 {P.Config.FlyFlagCommand}，目标世界坐标 ({target.WorldXZ.X:0.0}, {target.WorldXZ.Y:0.0})");
             }
 
             bool pathRunning = S.VnavmeshIPC.GetPathIsRunning();
@@ -427,7 +429,7 @@ internal static unsafe class HuntController
             {
                 Chat.ExecuteCommand(P.Config.FlyFlagCommand);
                 lastFlyFlagTime = DateTime.Now;
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 重试 {P.Config.FlyFlagCommand} (dist={distXZ:0.0}m)");
+                Dbg.Log($" 重试 {P.Config.FlyFlagCommand} (dist={distXZ:0.0}m)");
             }
 
             // 120 秒超时
@@ -450,7 +452,7 @@ internal static unsafe class HuntController
             lastNavDest = dest;
             bool fly = Player.CanFly && (Math.Abs(Player.Position.Y - dest.Y) > 5f || Vector3.Distance(Player.Position, dest) > 30f);
             S.VnavmeshIPC.TryPathfindAndMoveTo(dest, fly);
-            if (P.Config.Debug) PluginLog.Debug($"开始寻路到 {dest} (fly={fly})");
+            Dbg.Log($"开始寻路到 {dest} (fly={fly})");
         }
 
         bool running = S.VnavmeshIPC.GetPathIsRunning();
@@ -486,12 +488,12 @@ internal static unsafe class HuntController
             if (TryEstimateGroundY(target.WorldXZ, out var groundY))
             {
                 y = groundY + P.Config.ZOffset;
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停高度相对目标地面: 地面Y≈{groundY:0.0} → 悬停Y={y:0.0} (ZOffset={P.Config.ZOffset:0}m)");
+                Dbg.Log($" 悬停高度相对目标地面: 地面Y≈{groundY:0.0} → 悬停Y={y:0.0} (ZOffset={P.Config.ZOffset:0}m)");
             }
             else
             {
                 y += P.Config.ZOffset;
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 目标附近无可参照对象，悬停高度回退为当前飞行高度+ZOffset: Y={y:0.0}");
+                Dbg.Log($" 目标附近无可参照对象，悬停高度回退为当前飞行高度+ZOffset: Y={y:0.0}");
             }
         }
         return new Vector3(target.WorldXZ.X, y, target.WorldXZ.Y);
@@ -530,7 +532,7 @@ internal static unsafe class HuntController
         S.VnavmeshIPC.StopPath();
         S.VnavmeshIPC.TryPathfindAndMoveTo(preciseDest, Player.CanFly);
         lastPreciseRetry = DateTime.Now;
-        if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 接近目标，切换精确悬停: {preciseDest} (ZOffset={P.Config.ZOffset:0}m)");
+        Dbg.Log($" 接近目标，切换精确悬停: {preciseDest} (ZOffset={P.Config.ZOffset:0}m)");
     }
 
     /// <summary>精确悬停阶段：监测路径与到达（3D 距离 < 15m），路径中断 5 秒重试，纳入整体 120 秒超时。</summary>
@@ -559,7 +561,7 @@ internal static unsafe class HuntController
         {
             S.VnavmeshIPC.TryPathfindAndMoveTo(preciseDest, Player.CanFly);
             lastPreciseRetry = DateTime.Now;
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 重试精确悬停寻路 (dist3D={dist3D:0.0}m)");
+            Dbg.Log($" 重试精确悬停寻路 (dist3D={dist3D:0.0}m)");
         }
 
         // 整体超时沿用 120 秒
@@ -582,7 +584,7 @@ internal static unsafe class HuntController
         {
             bool knownHunt = HuntMobDatabase.IsHuntMob(current.NameId, P.Config.IncludeBRank);
             if (!knownHunt && P.Config.Debug)
-                PluginLog.Debug($"[AutoHunt] 当前目标未命中狩猎怪数据库，仍直接采用: {current.Name.TextValue} (NameId={current.NameId})");
+                Dbg.Log($" 当前目标未命中狩猎怪数据库，仍直接采用: {current.Name.TextValue} (NameId={current.NameId})");
             AdoptTarget(current, knownHunt ? "" : "（当前目标）");
             return;
         }
@@ -662,7 +664,7 @@ internal static unsafe class HuntController
             if (HasAliveHuntMobNearCoord())
             {
                 stateStartTime = DateTime.Now; // 重置计时，超时周期后再评估
-                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 狩猎怪仍在附近，继续尝试选中（放弃豁免）");
+                Dbg.Log(" 狩猎怪仍在附近，继续尝试选中（放弃豁免）");
                 return;
             }
 
@@ -671,7 +673,7 @@ internal static unsafe class HuntController
                 foreach (var obj in Svc.Objects)
                 {
                     if (obj is IBattleNpc npc && !npc.IsDead)
-                        PluginLog.Debug($"[AutoHunt] 超时诊断: 附近战斗怪 {npc.Name.TextValue} (NameId={npc.NameId}, IsHunt(含B)={HuntMobDatabase.IsHuntMob(npc.NameId, true)})");
+                        Dbg.Log($" 超时诊断: 附近战斗怪 {npc.Name.TextValue} (NameId={npc.NameId}, IsHunt(含B)={HuntMobDatabase.IsHuntMob(npc.NameId, true)})");
                 }
             }
             Notify.Error($"{timeoutSec}秒内未找到狩猎怪，放弃当前目标。");
@@ -699,7 +701,7 @@ internal static unsafe class HuntController
         if (hoverDist > 5f)
         {
             S.VnavmeshIPC.TryPathfindAndMoveTo(hoverPoint, true);
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 悬停跟随目标 (偏差 {hoverDist:0.0}m)");
+            Dbg.Log($" 悬停跟随目标 (偏差 {hoverDist:0.0}m)");
         }
     }
 
@@ -751,7 +753,7 @@ internal static unsafe class HuntController
             if (targetLostSince == DateTime.MinValue)
             {
                 targetLostSince = DateTime.Now;
-                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 攻击阶段目标丢失，尝试重新选中…");
+                Dbg.Log(" 攻击阶段目标丢失，尝试重新选中…");
             }
             TryRetarget();
 
@@ -804,7 +806,7 @@ internal static unsafe class HuntController
                     if (HasAliveHuntMobNearCoord())
                     {
                         targetLostSince = DateTime.Now; // 重置计时，30 秒后再评估
-                        if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 目标仍在附近，继续尝试重新选中（放弃豁免）");
+                        Dbg.Log(" 目标仍在附近，继续尝试重新选中（放弃豁免）");
                         return;
                     }
                     Notify.Error("目标丢失超过30秒，放弃当前目标。");
@@ -892,7 +894,7 @@ internal static unsafe class HuntController
             if (targetLostSince == DateTime.MinValue)
             {
                 targetLostSince = DateTime.Now;
-                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 下降阶段目标丢失，按最后位置继续下降并尝试重新选中…");
+                Dbg.Log(" 下降阶段目标丢失，按最后位置继续下降并尝试重新选中…");
             }
             TryRetarget();
             if (lastTargetPos != Vector3.Zero)
@@ -922,7 +924,7 @@ internal static unsafe class HuntController
             S.VnavmeshIPC.StopPath();
             S.VnavmeshIPC.TryPathfindAndMoveTo(groundDest, Player.CanFly);
             lastPreciseRetry = DateTime.Now;
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 开始下降到地面: {groundDest} (当前 Y={Player.Position.Y:0.0}, 目标 Y={groundDest.Y:0.0})");
+            Dbg.Log($" 开始下降到地面: {groundDest} (当前 Y={Player.Position.Y:0.0}, 目标 Y={groundDest.Y:0.0})");
         }
 
         bool running = S.VnavmeshIPC.GetPathIsRunning();
@@ -941,7 +943,7 @@ internal static unsafe class HuntController
             dismountStartTime = DateTime.Now;
             dismountWarned = false;
             navStarted = false;
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 已下降到地面 (Y={Player.Position.Y:0.0})，开始下坐骑");
+            Dbg.Log($" 已下降到地面 (Y={Player.Position.Y:0.0})，开始下坐骑");
             return;
         }
 
@@ -950,7 +952,7 @@ internal static unsafe class HuntController
         {
             S.VnavmeshIPC.TryPathfindAndMoveTo(groundDest, Player.CanFly);
             lastPreciseRetry = DateTime.Now;
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 重试下降寻路 (distY={distY:0.0}m, distXZ={distXZ:0.0}m)");
+            Dbg.Log($" 重试下降寻路 (distY={distY:0.0}m, distXZ={distXZ:0.0}m)");
         }
 
         // 超时 15 秒：强制进入下坐骑（可能在地面附近卡住）
@@ -1029,7 +1031,7 @@ internal static unsafe class HuntController
         }
         if (P.Config.Debug && elapsed > 15 && EzThrottler.Throttle("WYHuntDismountDbg", 5000))
         {
-            PluginLog.Debug($"[AutoHunt] 下坐骑重试中: InFlight={Svc.Condition[ConditionFlag.InFlight]}, Pos=({Player.Position.X:0.0}, {Player.Position.Y:0.0}, {Player.Position.Z:0.0})");
+            Dbg.Log($" 下坐骑重试中: InFlight={Svc.Condition[ConditionFlag.InFlight]}, Pos=({Player.Position.X:0.0}, {Player.Position.Y:0.0}, {Player.Position.Z:0.0})");
         }
 
         // 60 秒极端兜底：被持续控制移动等异常场合放弃该目标
@@ -1065,7 +1067,7 @@ internal static unsafe class HuntController
             if (targetLostSince == DateTime.MinValue)
             {
                 targetLostSince = DateTime.Now;
-                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 输出阶段目标丢失，尝试重新选中…");
+                Dbg.Log(" 输出阶段目标丢失，尝试重新选中…");
             }
             TryRetarget();
 
@@ -1126,13 +1128,13 @@ internal static unsafe class HuntController
     {
         if (!P.Config.AutoAttack) return;
         Chat.ExecuteCommand(P.Config.RotationStartCommand);
-        if (P.Config.Debug) PluginLog.Debug("执行输出命令: " + P.Config.RotationStartCommand);
+        Dbg.Log("执行输出命令: " + P.Config.RotationStartCommand);
     }
 
     private static void StopOutput()
     {
         Chat.ExecuteCommand(P.Config.RotationStopCommand);
-        if (P.Config.Debug) PluginLog.Debug("执行停止输出命令: " + P.Config.RotationStopCommand);
+        Dbg.Log("执行停止输出命令: " + P.Config.RotationStopCommand);
     }
 
     private static void OnMobKilled()
@@ -1274,7 +1276,7 @@ internal static unsafe class HuntController
         {
             navStarted = false;
         }
-        if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 导航目标精化: ({mobXZ.X:0.0}, {mobXZ.Y:0.0}) 距车头坐标 {distToCoord:0.0}m");
+        Dbg.Log($" 导航目标精化: ({mobXZ.X:0.0}, {mobXZ.Y:0.0}) 距车头坐标 {distToCoord:0.0}m");
     }
 
     /// <summary>寻找距指定坐标最近的存活狩猎怪（用于导航目标精化）。</summary>
@@ -1350,7 +1352,7 @@ internal static unsafe class HuntController
         if (best != null && P.Config.Debug)
         {
             var label = HuntMobDatabase.GetRankLabel(best.NameId);
-            PluginLog.Debug($"[AutoHunt] 锁定狩猎怪: {best.Name.TextValue} (NameId={best.NameId}, 等级={label}, 距离={Vector3.Distance(Player.Position, best.Position):0}m)");
+            Dbg.Log($" 锁定狩猎怪: {best.Name.TextValue} (NameId={best.NameId}, 等级={label}, 距离={Vector3.Distance(Player.Position, best.Position):0}m)");
         }
 
         return best;

@@ -26,13 +26,13 @@ internal static class AttackController
     {
         if (!P.Config.AutoAttack) return;
         Chat.ExecuteCommand(P.Config.RotationStartCommand);
-        if (P.Config.Debug) PluginLog.Debug("执行输出命令: " + P.Config.RotationStartCommand);
+        Dbg.Log("执行输出命令: " + P.Config.RotationStartCommand);
     }
 
     /// <summary>停止输出命令。</summary>
     public static void StopRotation()
     {
         Chat.ExecuteCommand(P.Config.RotationStopCommand);
-        if (P.Config.Debug) PluginLog.Debug("执行停止输出命令: " + P.Config.RotationStopCommand);
+        Dbg.Log("执行停止输出命令: " + P.Config.RotationStopCommand);
     }
 }

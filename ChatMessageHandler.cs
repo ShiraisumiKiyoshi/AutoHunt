@@ -67,7 +67,7 @@ internal static class ChatMessageHandler
             // 调试模式下低频打印非车头消息，方便排查“为什么没触发”
             if (P.Config.Debug && EzThrottler.Throttle("WYDbgSender", 3000))
             {
-                PluginLog.Debug($"[AutoHunt] 忽略非车头消息: \"{rawSender}\" ({cm.LogKind}): {GetText(cm)}");
+                Dbg.Log($" 忽略非车头消息: \"{rawSender}\" ({cm.LogKind}): {GetText(cm)}");
             }
             return;
         }
@@ -85,12 +85,12 @@ internal static class ChatMessageHandler
             var worldOk = conductors.Any(c => NameMatches(c.Name) && (c.WorldId == 0 || c.WorldId == senderWorld));
             if (!worldOk)
             {
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 车头世界服不匹配: {senderWorld}");
+                Dbg.Log($" 车头世界服不匹配: {senderWorld}");
                 return;
             }
         }
 
-        if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 收到车头消息 ({cm.LogKind}){(selfMode ? " [自己即车头]" : "")}: {GetText(cm)}");
+        Dbg.Log($" 收到车头消息 ({cm.LogKind}){(selfMode ? " [自己即车头]" : "")}: {GetText(cm)}");
 
         // 优先处理地图链接坐标
         foreach (var payload in cm.Message.Payloads)
@@ -147,7 +147,7 @@ internal static class ChatMessageHandler
         var map = MapManager.GetCurrentMap();
         if (map == null) return;
         var world = MapManager.DisplayToWorld(x, y, map.Value);
-        if (P.Config.Debug) PluginLog.Debug($"解析文本坐标 ({x}, {y}) → 世界 {world}");
+        Dbg.Log($"解析文本坐标 ({x}, {y}) → 世界 {world}");
 
         if (P.Config.AutoOpenMap && EzThrottler.Throttle("WYOpenMap", 3000))
         {
@@ -173,7 +173,7 @@ internal static class ChatMessageHandler
             if (HuntSpawnDatabase.TryMatchSpawn(targetTerritory, targetWorld, P.Config.SpawnMatchRadius, out matchNameId, out matchRank, out var spawnWorld))
             {
                 if (P.Config.Debug)
-                    PluginLog.Debug($"[AutoHunt] 车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0}) 命中 [{matchRank}] 级狩猎怪出生点 ({spawnWorld.X:0.0}, {spawnWorld.Y:0.0})，偏差 {Vector2.Distance(targetWorld, spawnWorld):0.0}m");
+                    Dbg.Log($" 车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0}) 命中 [{matchRank}] 级狩猎怪出生点 ({spawnWorld.X:0.0}, {spawnWorld.Y:0.0})，偏差 {Vector2.Distance(targetWorld, spawnWorld):0.0}m");
                 targetWorld = spawnWorld;
             }
             else
@@ -207,7 +207,7 @@ internal static class ChatMessageHandler
         if (pendingSwitch == 0 && (P.SwitchInProgress || (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0)))
         {
             P.HeldCoordinate = tp;
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 副本区切换流程进行中，暂存车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0})");
+            Dbg.Log($" 副本区切换流程进行中，暂存车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0})");
             return;
         }
 
@@ -225,6 +225,7 @@ internal static class ChatMessageHandler
                 SwitchInstance = pendingSwitch,
             };
             HuntController.Reset();
+            PluginLog.Information($"[AutoHunt] 车头新坐标触发切区：先传送至 {aetheryteName}（地图 {targetTerritory}），到达后切到 {pendingSwitch} 号副本区");
             Notify.Info($"准备切换 {pendingSwitch} 号副本区，传送到 {aetheryteName}…");
             return;
         }

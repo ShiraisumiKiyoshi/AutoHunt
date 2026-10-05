@@ -76,7 +76,7 @@ public static unsafe class ConductorFetchService
             var agent = AgentLookingForGroup.Instance();
             if (agent == null) return true;
             var ok = agent->RequestCategoryListings(11);
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 获取车头：RequestCategoryListings(11) → {ok}");
+            Dbg.Log($" 获取车头：RequestCategoryListings(11) → {ok}");
             return true;
         }, cfg);
 

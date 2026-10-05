@@ -172,6 +172,15 @@ public unsafe class AutoHunt : IDalamudPlugin
                 }
             }
 
+            // 看门狗：副本区切换状态残留超过 150 秒仍未解除（例如 Lifestream 一直报 busy）→ 强制解除。
+            // 不清除的话 ChatMessageHandler 会把之后每一条车头坐标都当成"切换进行中"暂存吞掉，
+            // 表现为"再也不切副本区、也不去车头坐标"。
+            if (SwitchInProgress && (DateTime.Now - SwitchStartTime).TotalSeconds > 150)
+            {
+                SwitchInProgress = false;
+                PluginLog.Warning("[AutoHunt] 副本区切换状态超过 150 秒未完成，已强制解除（避免后续车头坐标被一直暂存吞掉）");
+            }
+
             if (!Player.Available) return;
             // IPC 服务未就绪（初始化失败/热重载竞态）时跳过本轮，避免 NullReferenceException
             if (S.LifestreamIPC == null || S.TeleporterIPC == null || S.VnavmeshIPC == null) return;

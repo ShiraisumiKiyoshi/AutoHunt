@@ -131,7 +131,7 @@ public static unsafe class TaskCreateHuntPF
             if (!blu) return true;
             if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 5000)
             {
-                if (P.Config.Debug) PluginLog.Debug("[AutoHunt] 青魔占位：职业选择界面未出现，跳过");
+                Dbg.Log(" 青魔占位：职业选择界面未出现，跳过");
                 return true;
             }
             return TryGetAddonByName<AtkUnitBase>("LookingForGroupSelectRole", out var a) && IsAddonReady(a);

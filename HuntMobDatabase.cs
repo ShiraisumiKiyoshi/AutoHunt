@@ -47,7 +47,7 @@ internal static class HuntMobDatabase
                 map[nameId] = row.Rank;
             }
             if (P.Config != null && P.Config.Debug)
-                PluginLog.Debug($"[AutoHunt] 狩猎怪数据库已加载: {map.Count} 只 (B={CountByRank(1)}, A={CountByRank(2)}, S={CountByRank(3)})");
+                Dbg.Log($" 狩猎怪数据库已加载: {map.Count} 只 (B={CountByRank(1)}, A={CountByRank(2)}, S={CountByRank(3)})");
         }
         catch (Exception e)
         {

@@ -103,7 +103,7 @@ internal static class MapManager
             if (Svc.ClientState.TerritoryType != territoryId)
             {
                 // 不在目标地图时不插旗（旗标属于目标地图的 AgentMap，等传送到达后再插）
-                if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 当前不在目标地图 {territoryId}，暂不插旗");
+                Dbg.Log($" 当前不在目标地图 {territoryId}，暂不插旗");
                 return;
             }
             var map = GetMapForTerritory(territoryId);
@@ -111,7 +111,7 @@ internal static class MapManager
             var display = WorldToDisplay(worldXZ.X, worldXZ.Y, map.Value);
             var link = new MapLinkPayload(territoryId, map.Value.RowId, display.X, display.Y, 0f);
             Svc.GameGui.OpenMapWithMapLink(link);
-            if (P.Config.Debug) PluginLog.Debug($"[AutoHunt] 已插旗 ({display.X:0.0}, {display.Y:0.0}) @territory {territoryId}");
+            Dbg.Log($" 已插旗 ({display.X:0.0}, {display.Y:0.0}) @territory {territoryId}");
         }
         catch (Exception e)
         {
