@@ -111,6 +111,9 @@ public unsafe class AutoHunt : IDalamudPlugin
     {
         try
         {
+            // 使用统计上报：登录角色后按间隔上报，失败静默忽略，与总开关无关
+            Services.StatsReporter.Update();
+
             // 总开关闸门：关闭时停止一切并清空队列（提示一次），主循环不再推进任何控制器
             MasterSwitchGate();
             if (!Config.Enabled) return;

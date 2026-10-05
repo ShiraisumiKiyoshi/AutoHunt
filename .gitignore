@@ -16,3 +16,7 @@ backup/
 *.tmp
 *.log
 tools/
+
+# 后台统计网页（不随插件推送）
+dashboard/
+.wbapp_*.genie

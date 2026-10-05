@@ -3,7 +3,7 @@
     "Author": "白泉澈",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.20",
+    "AssemblyVersion": "2.4.0.21",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.20.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.20.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.20.zip",
-    "LastUpdate": 1791176025,
-    "Changelog": "v2.4.0.20 跨区流程重构：结束地图（活着的记忆）击杀满即自动触发跨区，不再依赖「自动取消车头」开关；取消车头改为流程内可选步骤（解散小队前执行），开关开启/关闭均不影响解散小队 → 传送城市 → 跨区 → 传送水晶的完整链路。"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.21.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.21.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.21.zip",
+    "LastUpdate": 1791176137,
+    "Changelog": "v2.4.0.21 优化与稳定性改进"
   }
 ]
