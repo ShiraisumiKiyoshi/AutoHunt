@@ -67,12 +67,18 @@ internal static class HuntSpawnDatabase
             rawSpawnCount = raw.Values.Sum(m => m.Maps.Values.Sum(pts => pts.Length));
 
             // 建立 Map.Id → (TerritoryType, Map) 索引
+            // ⚠️ 客户端 Map 表的 Id 列形如 "n4f3/00"（带 '/'），而出生点数据里的键是去掉
+            //    '/' 的紧凑写法 "n4f300"——两种写法都登记，否则整张表一条都匹配不上
+            //    （此前日志「0 只 / 0 个出生点」的根因，v2.4.0.22 修复）。
             var mapIndex = new Dictionary<string, (uint territory, LuminaMap map)>();
             foreach (var map in Svc.Data.GetExcelSheet<LuminaMap>())
             {
+                var territory = map.TerritoryType.RowId;
+                if (territory == 0) continue;
                 var id = map.Id.ToString();
-                if (string.IsNullOrEmpty(id) || map.TerritoryType.RowId == 0) continue;
-                mapIndex[id] = (map.TerritoryType.RowId, map);
+                if (string.IsNullOrEmpty(id)) continue;
+                mapIndex.TryAdd(id, (territory, map));
+                mapIndex.TryAdd(id.Replace("/", ""), (territory, map));
             }
 
             var db = new Dictionary<uint, List<MobSpawn>>();
@@ -102,7 +108,11 @@ internal static class HuntSpawnDatabase
             }
 
             worldDb = db;
-            PluginLog.Information($"[AutoHunt] 狩猎怪出生点数据库已加载: {db.Values.SelectMany(x => x).Select(x => x.NameId).Distinct().Count()} 只 / {db.Values.Sum(l => l.Sum(m => m.WorldSpawns.Count))} 个出生点 (原始 {rawMobCount} 只 / {rawSpawnCount} 点)");
+            var loadedMobs = db.Values.SelectMany(x => x).Select(x => x.NameId).Distinct().Count();
+            var loadedPts = db.Values.Sum(l => l.Sum(m => m.WorldSpawns.Count));
+            PluginLog.Information($"[AutoHunt] 狩猎怪出生点数据库已加载: {loadedMobs} 只 / {loadedPts} 个出生点 (原始 {rawMobCount} 只 / {rawSpawnCount} 点)");
+            if (loadedPts == 0 && rawSpawnCount > 0)
+                PluginLog.Error($"[AutoHunt] 出生点数据库加载为 0：Map.Id 与数据键失配（数据键示例见 Data/HuntSpawns.json），出生点辅助将不生效");
         }
         catch (Exception e)
         {

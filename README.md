@@ -1,6 +1,6 @@
 # AutoHunt
 
-FFXIV 国服 Dalamud 自动狩猎插件。作者：白泉澈
+FFXIV 国服 Dalamud 自动狩猎插件。作者：雷霆大宝贝
 
 ## 功能
 
