@@ -3,7 +3,7 @@
     "Author": "雷霆大宝贝",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.26",
+    "AssemblyVersion": "2.4.0.27",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.26.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.26.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.26.zip",
-    "LastUpdate": 1791378551,
-    "Changelog": "v2.4.0.26 修复「不分线地图卡在副本区切换流程」：DR 的「当前区域不存在可切换的副本」提示是屏幕 toast，不经过聊天频道，旧版靠聊天文本匹配永远收不到，导致 /pdr insc 后一直空等。现改为行为判定：发出 /pdr insc 后 15 秒内既无读图过渡、原生副本区号也无变化、且该地图从无分线证据（此前没读到过区号、Lifestream 也不知道多区）→ 判定本图不分线，立即继续寻路流程并把该地图记入不分线名单，之后不再尝试切区；若该地图有分线证据则继续等待（最长 180 秒超时兜底），避免把分线地图误记为不分线。另放宽聊天反馈的记录门槛（含「副本/切换/insc」即记录），便于后续从日志核对 DR 措辞。"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.27.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.27.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.27.zip",
+    "LastUpdate": 1791379536,
+    "Changelog": "v2.4.0.27 副本区识别改为「学习 + 记忆」，不再进出不分线地图空等：1) 地图是否分线会持久化记录到配置——已识别为不分线的地图（如 1187/1188/1189/1190/1192/139）跨图到达后直接开始寻路，完全不进入切换流程、零等待；有分线的地图（如 1191 遗产之地）照常切 1 号区；2) 切换判定改用 DR 的聊天反馈为主判据——实测 DR 切区成功时会输出「当前所在副本区为…」（约 2 秒内到达），收到即视为成功并立即继续；3) 首次进入未知地图会自动探测一次，8 秒内 DR 无反馈且无读图过渡则按不分线处理（并提示「当前地图未检测到可切换的副本区，直接前往车头坐标」），同一地图连续两次如此才永久记录为不分线，避免 DR 一时无响应导致误判；4) 任何时候读到真实区号、Lifestream 报告多区或 DR 切换成功，都会立刻把该地图纠正为「有分线」并清除误记录；5) 「高级 → 副本区切换」新增识别统计与「重置副本地图识别」按钮，误判时可一键重学；6) 切区结束后若流程被重置但车头坐标仍在，会直接续跑，不再干等车头下一条坐标。"
   }
 ]

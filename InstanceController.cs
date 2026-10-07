@@ -48,17 +48,28 @@ internal static unsafe class InstanceController
     /// <summary>DR 已明确反馈「不存在可切换的副本区」的地图（本图不分线，跳过一切切区动作）。</summary>
     private static readonly HashSet<uint> nonInstancedTerritories = new();
 
+    /// <summary>发出 /pdr insc 后无任何反应（无 DR 反馈、无读图过渡、区号未变）的累计次数。
+    /// 达到 2 次才把地图记为"不分线"并持久化——避免 DR 模块未启用/一时无响应时误判。</summary>
+    private static readonly Dictionary<uint, int> noResponseCount = new();
+
+    private static bool knowledgeLoaded = false;
+
     // ===== DR 副本区切换状态机 =====
 
     private static int switchTargetLine = 0;
     private static DateTime switchStartedAt = DateTime.MinValue;
     private static bool switchSawBetweenAreas = false;
     private static bool drSaidNoInstance = false;
+    /// <summary>DR 已通过聊天反馈确认切换成功（"当前所在副本区为…"）。</summary>
+    private static bool drConfirmedSwitch = false;
 
     /// <summary>切换等待超时（秒）。DR 内部会走向水晶/传送（可自动重试），正常几十秒内完成。</summary>
     private const double SwitchTimeoutSeconds = 180.0;
-    /// <summary>短窗确认：发出 /pdr insc 后这么多秒内无读图过渡且区号未变 → 判定本图不可切换（无分线证据时）。</summary>
-    private const double ConfirmWindowSeconds = 15.0;
+    /// <summary>无响应判定窗口（秒）：发出 /pdr insc 后这么多秒内既无 DR 反馈也无读图过渡且区号未变，
+    /// 视为本图没有可切换的副本区（DR 的失败提示是屏幕 toast，聊天频道收不到，只能靠行为判定）。</summary>
+    private const double NoResponseSeconds = 8.0;
+    /// <summary>同一地图连续无响应多少次才持久化"不分线"标记。</summary>
+    private const int NoResponseThreshold = 2;
 
     public static int CachedInstanceCount => cachedInstanceCount;
     public static int CachedCurrentInstance => cachedCurrentInstance;
@@ -133,7 +144,7 @@ internal static unsafe class InstanceController
         var native = GetNativeInstanceId();
         if (native != 0)
         {
-            lineCapableTerritories.Add(territory);
+            MarkLineCapable(territory);
             lastKnownLineByTerritory[territory] = native;
             return native;
         }
@@ -141,7 +152,98 @@ internal static unsafe class InstanceController
     }
 
     /// <summary>DR 是否已反馈该地图不存在可切换的副本区（不分线）。</summary>
-    public static bool IsKnownNonInstanced(uint territory) => nonInstancedTerritories.Contains(territory);
+    public static bool IsKnownNonInstanced(uint territory)
+    {
+        EnsureKnowledgeLoaded();
+        return nonInstancedTerritories.Contains(territory);
+    }
+
+    /// <summary>该地图是否有分线（读到过区号 / Lifestream 已知多区 / DR 切换成功过）。</summary>
+    public static bool IsKnownInstanced(uint territory)
+    {
+        EnsureKnowledgeLoaded();
+        return lineCapableTerritories.Contains(territory);
+    }
+
+    /// <summary>已识别为有分线 / 不分线的地图数量（供 UI 展示）。</summary>
+    public static int KnownInstancedCount { get { EnsureKnowledgeLoaded(); return lineCapableTerritories.Count; } }
+    public static int KnownNonInstancedCount { get { EnsureKnowledgeLoaded(); return nonInstancedTerritories.Count; } }
+
+    /// <summary>把配置中持久化的地图识别记录载入内存（进程内只执行一次）。</summary>
+    private static void EnsureKnowledgeLoaded()
+    {
+        if (knowledgeLoaded) return;
+        knowledgeLoaded = true;
+        try
+        {
+            foreach (var t in P.Config.KnownInstancedTerritories)
+                if (t != 0) lineCapableTerritories.Add(t);
+            foreach (var t in P.Config.KnownNonInstancedTerritories)
+                if (t != 0 && !lineCapableTerritories.Contains(t)) nonInstancedTerritories.Add(t);
+            PluginLog.Information($"[AutoHunt] 副本地图识别已载入：有分线 {lineCapableTerritories.Count} 张 / 不分线 {nonInstancedTerritories.Count} 张");
+        }
+        catch (Exception e)
+        {
+            PluginLog.Warning($"[AutoHunt] 载入副本地图识别记录失败: {e.Message}");
+        }
+    }
+
+    /// <summary>记录「该地图有分线」并持久化；若此前被误记为不分线则一并纠正。</summary>
+    public static void MarkLineCapable(uint territory)
+    {
+        if (territory == 0) return;
+        EnsureKnowledgeLoaded();
+        var changed = lineCapableTerritories.Add(territory);
+        if (nonInstancedTerritories.Remove(territory)) changed = true;
+        noResponseCount.Remove(territory);
+        if (!changed) return;
+        try
+        {
+            if (!P.Config.KnownInstancedTerritories.Contains(territory))
+                P.Config.KnownInstancedTerritories.Add(territory);
+            P.Config.KnownNonInstancedTerritories.Remove(territory);
+            EzConfig.Save();
+        }
+        catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存副本地图识别失败: {e.Message}"); }
+        PluginLog.Information($"[AutoHunt] 地图 {territory} 确认为「有分线」（已记录，后续进图会切 1 号区）");
+    }
+
+    /// <summary>记录「该地图不分线」并持久化（有分线证据的地图不会被打标）。</summary>
+    public static void MarkNonInstanced(uint territory)
+    {
+        if (territory == 0) return;
+        EnsureKnowledgeLoaded();
+        if (lineCapableTerritories.Contains(territory)) return;
+        if (!nonInstancedTerritories.Add(territory)) return;
+        try
+        {
+            if (!P.Config.KnownNonInstancedTerritories.Contains(territory))
+                P.Config.KnownNonInstancedTerritories.Add(territory);
+            P.Config.KnownInstancedTerritories.Remove(territory);
+            EzConfig.Save();
+        }
+        catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存副本地图识别失败: {e.Message}"); }
+        PluginLog.Information($"[AutoHunt] 地图 {territory} 确认为「不分线」（已记录，后续进图不再尝试切区）");
+    }
+
+    /// <summary>清空全部副本地图识别记录（UI「重置副本地图识别」按钮）。</summary>
+    public static void ResetKnownMaps()
+    {
+        knowledgeLoaded = true;
+        lineCapableTerritories.Clear();
+        nonInstancedTerritories.Clear();
+        noResponseCount.Clear();
+        lastKnownLineByTerritory.Clear();
+        try
+        {
+            P.Config.KnownInstancedTerritories.Clear();
+            P.Config.KnownNonInstancedTerritories.Clear();
+            EzConfig.Save();
+        }
+        catch { }
+        PluginLog.Information("[AutoHunt] 已重置副本地图识别记录");
+        Notify.Info("已重置副本地图识别记录。");
+    }
 
     /// <summary>地图名称（TerritoryType → PlaceName，读取失败返回空串）。</summary>
     public static string GetMapName(uint territory)
@@ -169,7 +271,7 @@ internal static unsafe class InstanceController
         if (line <= 0) return;
         var t = territory ?? Svc.ClientState.TerritoryType;
         if (t == 0) return;
-        lineCapableTerritories.Add(t);
+        MarkLineCapable(t);
         lastKnownLineByTerritory[t] = line;
     }
 
@@ -197,24 +299,43 @@ internal static unsafe class InstanceController
             PluginLog.Warning($"[AutoHunt] 收到非法副本区号 {targetLine}，跳过切区");
             return;
         }
+        var here = Svc.ClientState.TerritoryType;
+        if (IsKnownNonInstanced(here))
+        {
+            // 已记录为不分线：不发指令，直接续跑（否则暂存的车头坐标会一直卡在 HeldCoordinate）
+            PluginLog.Information($"[AutoHunt] 地图 {here} 已记录为不分线，跳过 /pdr insc {targetLine}，直接继续流程");
+            P.SwitchInProgress = false;
+            var held0 = P.HeldCoordinate;
+            P.HeldCoordinate = null;
+            if (held0 != null) HuntController.OnNewCoordinate(held0);
+            else if (HuntController.CurrentState == HuntController.State.Teleporting) HuntController.OnArrived();
+            return;
+        }
         switchTargetLine = targetLine;
         switchStartedAt = DateTime.Now;
         switchSawBetweenAreas = false;
         drSaidNoInstance = false;
+        drConfirmedSwitch = false;
         P.SwitchInProgress = true;
         P.SwitchStartTime = DateTime.Now;
         Chat.ExecuteCommand($"/pdr insc {targetLine}");
-        Notify.Info($"正在切换到 {targetLine} 号副本区（DR 快捷副本区切换）…");
-        PluginLog.Information($"[AutoHunt] 已发送 /pdr insc {targetLine}（地图 {Svc.ClientState.TerritoryType}），等待 DR 完成切换");
+        // 未知地图：这是一次"探测"，DR 若分线正常会在一两秒内反馈「当前所在副本区为…」
+        if (!IsKnownInstanced(here))
+            Notify.Info($"正在确认当前地图是否分线（约 {NoResponseSeconds:0} 秒）…");
+        else
+            Notify.Info($"正在切换到 {targetLine} 号副本区（DR 快捷副本区切换）…");
+        PluginLog.Information($"[AutoHunt] 已发送 /pdr insc {targetLine}（地图 {here}），等待 DR 响应");
     }
 
     /// <summary>
-    /// 切区等待推进。返回 true = 切换流程结束（成功 / DR 反馈不分线 / 超时），可继续后续流程。
+    /// 切区等待推进。返回 true = 切换流程结束（成功 / 本图不分线 / 超时），可继续后续流程。
     /// 仅在 P.SwitchInProgress 为 true 时由主循环调用。
     /// </summary>
     public static bool UpdateSwitchProgress()
     {
         if (!P.SwitchInProgress) return true;
+        EnsureKnowledgeLoaded();
+        var here = Svc.ClientState.TerritoryType;
         var elapsed = (DateTime.Now - switchStartedAt).TotalSeconds;
 
         // 读图过渡中（DR 切区会传送/换区）：记住见过过渡，等它结束
@@ -224,55 +345,78 @@ internal static unsafe class InstanceController
             return false;
         }
 
-        // DR 明确反馈本图不存在可切换的副本区 → 本图不分线，直接继续
+        // DR 反馈本图不存在可切换的副本区 → 本图不分线，直接继续
         if (drSaidNoInstance)
         {
-            PluginLog.Information($"[AutoHunt] DR 反馈地图 {Svc.ClientState.TerritoryType} 不存在可切换的副本区（本图不分线），继续流程");
+            MarkNonInstanced(here);
+            PluginLog.Information($"[AutoHunt] DR 反馈地图 {here} 不存在可切换的副本区，继续流程");
             return true;
         }
 
-        // 已发生读图过渡且过渡结束 → 切区动作已完成（新区号稍后由原生读数刷新）
+        // DR 通过聊天确认切换成功（"当前所在副本区为…"）——最可靠的信号，实测约 2 秒内到达。
+        // 确认后等区号刷新/过渡结束即可继续流程。
+        if (drConfirmedSwitch)
+        {
+            MarkLineCapable(here);
+            NoteKnownLine(switchTargetLine, here);
+            if (GetNativeInstanceId() == switchTargetLine)
+            {
+                PluginLog.Information($"[AutoHunt] 副本区切换完成（DR 已确认 + 原生区号 {switchTargetLine}，耗时 {elapsed:0}s）");
+                return true;
+            }
+            if (elapsed > 20)
+            {
+                PluginLog.Information($"[AutoHunt] 副本区切换：DR 已确认切换，原生区号暂未刷新，直接继续流程（耗时 {elapsed:0}s）");
+                return true;
+            }
+            return false;
+        }
+
+        // 已发生读图过渡且过渡结束 → 切区动作已完成
         if (switchSawBetweenAreas && elapsed > 3)
         {
+            MarkLineCapable(here);
+            NoteKnownLine(switchTargetLine, here);
             PluginLog.Information($"[AutoHunt] 副本区切换完成（观察到读图过渡，目标 {switchTargetLine} 号区，耗时 {elapsed:0}s）");
             return true;
         }
 
         // 未触发读图但原生区号已等于目标（典型：已在目标区，DR 无需动作）
-        if (elapsed > 5 && GetNativeInstanceId() == switchTargetLine)
+        if (elapsed > 3 && GetNativeInstanceId() == switchTargetLine)
         {
+            MarkLineCapable(here);
+            NoteKnownLine(switchTargetLine, here);
             PluginLog.Information($"[AutoHunt] 副本区切换完成（已在 {switchTargetLine} 号区，无需切换，耗时 {elapsed:0}s）");
             return true;
         }
 
-        // 短窗确认：发出指令后 ConfirmWindow 秒内无读图过渡、原生区号未变、也无聊天反馈。
-        // DR 的「当前区域不存在可切换的副本」提示是屏幕 toast，不经过聊天频道，文本匹配永远收不到——
-        // 只能靠行为判定：真正的切区必然伴随读图过渡（传送/换区），没有过渡 = 没切。
-        if (elapsed > ConfirmWindowSeconds)
-        {
-            var here = Svc.ClientState.TerritoryType;
-            var hasEvidence = lineCapableTerritories.Contains(here)
-                || S.LifestreamIPC.GetInstanceCount() > 1
-                || GetNativeInstanceId() > 0;
-            if (!hasEvidence)
-            {
-                // 该地图从未表现出分线能力 → 记为不分线，后续不再尝试切区
-                nonInstancedTerritories.Add(here);
-                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 后 {ConfirmWindowSeconds:0}s 无读图过渡且原生区号未变化，"
-                    + $"判定地图 {here} 不可切换副本区（本图不分线），继续流程");
-                Notify.Info("当前地图不分副本区，继续流程");
-                return true;
-            }
+        var hasEvidence = lineCapableTerritories.Contains(here)
+            || S.LifestreamIPC.GetInstanceCount() > 1
+            || GetNativeInstanceId() > 0;
 
-            // 该地图有分线证据（此前读到过区号 / Lifestream 已知多区）但 DR 没动作：
-            // 大概率 DR 模块未启用或指令未生效，不标记不分线（避免误记），按超时处理
-            PluginLog.Warning($"[AutoHunt] /pdr insc {switchTargetLine} 后 {ConfirmWindowSeconds:0}s 无任何反应，但地图 {here} 有分线证据"
-                + "（此前读到过区号）——请确认 DR「快捷副本区切换」模块已启用，继续等待或超时后跳过");
+        // 无响应判定：DR 的失败提示是屏幕 toast（聊天频道收不到），只能靠行为判定——
+        // 真正切区必有读图过渡或 DR 聊天反馈；两者都没有 = 本图没有可切换的副本区。
+        if (elapsed > NoResponseSeconds && !hasEvidence)
+        {
+            var n = noResponseCount.TryGetValue(here, out var c) ? c + 1 : 1;
+            noResponseCount[here] = n;
+            if (n >= NoResponseThreshold)
+            {
+                MarkNonInstanced(here);
+                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 无响应（第 {n} 次），地图 {here} 判定为不分线并已记录，继续流程");
+                Notify.Info("当前地图不分副本区，直接前往车头坐标");
+            }
+            else
+            {
+                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 无响应（第 {n}/{NoResponseThreshold} 次），地图 {here} 暂按不分线处理（再确认一次后永久记录）");
+                Notify.Info("当前地图未检测到可切换的副本区，直接前往车头坐标");
+            }
+            return true;
         }
 
         if (elapsed > SwitchTimeoutSeconds)
         {
-            PluginLog.Warning($"[AutoHunt] 副本区切换超过 {SwitchTimeoutSeconds:0} 秒未完成（DR 未反馈且无读图过渡），放弃等待并继续流程;"
+            PluginLog.Warning($"[AutoHunt] 副本区切换超过 {SwitchTimeoutSeconds:0} 秒未完成，放弃等待并继续流程;"
                 + "请确认已安装 Daily Routines 并启用「快捷副本区切换」模块");
             Notify.Error("副本区切换超时，已跳过并继续流程。请确认 DR 插件已启用「快捷副本区切换」模块。");
             return true;
@@ -284,6 +428,7 @@ internal static unsafe class InstanceController
     /// <summary>
     /// 监听 DR（Daily Routines）对 /pdr insc 的聊天反馈。
     /// 由 ChatMessageHandler 对每条聊天消息调用（不受车头过滤影响）。
+    /// 实测 DR 成功切区时会输出「当前所在副本区为“遗产之地”。」——这是最可靠的切换成功信号。
     /// </summary>
     public static void OnChatFeedback(IHandleableChatMessage cm)
     {
@@ -291,18 +436,25 @@ internal static unsafe class InstanceController
         if (text.IsNullOrEmpty()) return;
         if (!text.Contains("副本") && !text.Contains("insc") && !text.Contains("切换")) return;
 
-        // 非调试模式下低频记录，便于从日志核对 DR 的实际反馈措辞（用于调宽匹配关键词）
+        // 非调试模式下低频记录，便于从日志核对 DR 的实际反馈措辞
         if (!P.Config.Debug && EzThrottler.Throttle("WYDrFeedback", 5000))
             PluginLog.Information($"[AutoHunt] DR/切区相关反馈: {text}");
         Dbg.Log($" DR/切区相关反馈: {text}");
 
+        // 成功反馈（与是否处于切换流程无关：DR 也可能响应其他来源的 /pdr insc）
+        if (text.Contains("所在副本区") || text.Contains("当前副本区"))
+        {
+            MarkLineCapable(Svc.ClientState.TerritoryType);
+            if (P.SwitchInProgress) drConfirmedSwitch = true;
+            return;
+        }
+
         if (!P.SwitchInProgress) return;
 
-        // 不存在可切换的副本区（本图不分线）。措辞按 DR 实际输出宽匹配，
-        // 命中即把本图标记为不分线，后续不再尝试切区。
+        // 不存在可切换的副本区（本图不分线）。措辞按 DR 实际输出宽匹配。
         if (text.Contains("不存在") || text.Contains("不支持") || text.Contains("没有可") || text.Contains("无法切换"))
         {
-            nonInstancedTerritories.Add(Svc.ClientState.TerritoryType);
+            MarkNonInstanced(Svc.ClientState.TerritoryType);
             drSaidNoInstance = true;
         }
     }
@@ -355,6 +507,7 @@ internal static unsafe class InstanceController
     public static void Update()
     {
         if (S.LifestreamIPC == null) return;
+        EnsureKnowledgeLoaded();
 
         // 副本区变化检测（只认非 0 读数变化；0 只是数据未就绪，不代表换区）。
         // 击杀数按「地图+副本区」分桶保存，换区不清零——仅清理对象去重集合
@@ -368,8 +521,8 @@ internal static unsafe class InstanceController
                 var prev = lastInstanceId;
                 lastInstanceId = instId;
                 var territory = Svc.ClientState.TerritoryType;
-                // 读到非 0 区号 = 该地图确有分线（记录证据 + 记住当前区号）
-                lineCapableTerritories.Add(territory);
+                // 读到非 0 区号 = 该地图确有分线（记录证据 + 记住当前区号，并持久化）
+                MarkLineCapable(territory);
                 lastKnownLineByTerritory[territory] = (int)instId;
                 engagedMobIds.Clear();
                 countedMobIds.Clear();
@@ -563,6 +716,7 @@ internal static unsafe class InstanceController
         switchStartedAt = DateTime.MinValue;
         switchSawBetweenAreas = false;
         drSaidNoInstance = false;
+        drConfirmedSwitch = false;
         lastKnownLineByTerritory.Clear();
         engagedMobIds.Clear();
         countedMobIds.Clear();

@@ -53,6 +53,7 @@ public class MainWindow : ConfigWindow
     private const string IcKbd = "\uf11c";
     private const string IcDb = "\uf1c0";           // database
     private const string IcTarget = "\uf192";       // dot-circle → 状态/目标
+    private const string IcRefresh = "\uf021";      // arrows-rotate → 重置
     private const string IcChevD = "\uf078";
 
     private static ImFontPtr _iconFont;
@@ -450,7 +451,8 @@ public class MainWindow : ConfigWindow
         {
             anyWarn = true;
             Row(IcAlert, ColAmber, $"正在切换 {InstanceController.SwitchTargetLine} 号副本区",
-                "DR 快捷副本区切换（/pdr insc）执行中", tag: "切换中", tagCol: ColAmber);
+                "DR 快捷副本区切换（/pdr insc）执行中；若本图不分线，最多 8 秒后自动继续",
+                tag: "切换中", tagCol: ColAmber);
         }
         if (!Conductor.IsValid)
         {
@@ -628,8 +630,16 @@ public class MainWindow : ConfigWindow
         ToggleRow("自动切换副本区", "击杀满后自动切换下一副本区；跨图到达自动切 1 号区", "##tAutoInstance", ref P.Config.AutoInstance);
         RowEnd();
         ImGui.TextColored(ColSub, "依赖 Daily Routines（DR）插件的「快捷副本区切换」模块（/pdr insc）。");
-        ImGui.TextColored(ColSub, "击杀数按「地图+副本区」独立统计，换图/换区不清零；DR 提示本图不存在可切换的");
-        ImGui.TextColored(ColSub, "副本区时，该地图会被记为不分线并跳过切区。");
+        ImGui.TextColored(ColSub, "击杀数按「地图+副本区」独立统计，换图/换区不清零。");
+        ImGui.TextColored(ColSub,
+            $"已识别地图：有分线 {InstanceController.KnownInstancedCount} 张 / 不分线 {InstanceController.KnownNonInstancedCount} 张"
+            + "（不分线地图进图后不再尝试切区，直接寻路）");
+        if (GhostButton("##gbResetMaps", IcRefresh, "重置副本地图识别"))
+        {
+            InstanceController.ResetKnownMaps();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("清空「哪些地图有分线」的学习记录，下次进图会重新探测（每次最多 8 秒）");
 
         // 流程参数
         Sect("流程参数");

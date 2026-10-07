@@ -184,6 +184,13 @@ public unsafe class AutoHunt : IDalamudPlugin
                     Notify.Info("副本区切换完成，继续前往车头坐标…");
                     HuntController.OnArrived();
                 }
+                else if (HuntController.CurrentState == HuntController.State.Idle
+                    && HuntController.CurrentPendingTarget != null)
+                {
+                    // 兜底：流程被重置过但车头坐标仍在，直接续跑（否则要等车头下一条坐标才动）
+                    Notify.Info("副本区切换完成，继续前往车头坐标…");
+                    HuntController.OnNewCoordinate(HuntController.CurrentPendingTarget);
+                }
             }
 
             if (!Player.Available) return;
