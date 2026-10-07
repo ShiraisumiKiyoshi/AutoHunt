@@ -3,7 +3,7 @@
     "Author": "雷霆大宝贝",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.25",
+    "AssemblyVersion": "2.4.0.26",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.25.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.25.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.25.zip",
-    "LastUpdate": 1791377383,
-    "Changelog": "v2.4.0.25 副本区切换重构 + 击杀数分桶统计：1) 删除旧的副本区切换逻辑（Lifestream 切区 / 首次进图保证 1 号区 / 车头切线指令解析），副本区切换改为依赖 Daily Routines（DR）插件的「快捷副本区切换」模块（/pdr insc），请先在 DR 中启用该模块；2) 通过车头坐标传送到不同地图时自动执行 /pdr insc 1，DR 提示当前区域不存在可切换的副本区则记为不分线地图并跳过；3) 本区击杀数已满且车头最新坐标仍在本地图时：传送到距离坐标最近的水晶后执行 /pdr insc (当前区号+1)，切换成功后再继续寻路与后续流程（已是最后一个副本区时不切区直接前往坐标）；4) 击杀数改为按「地图+副本区」分桶独立统计——换地图或换副本区不再清零，只有跨区流程启动前、关闭插件总开关、手动点击「清空击杀数」才清零全部计数；5) 主页「本区击杀」卡片显示当前地图名+副本区（如：本区击杀——遗产之地1线，不分线地图只显示地图名），「全部取消车头」旁新增「清空击杀数」按钮；6) 「高级」页新增「副本区切换」板块并提示 DR 依赖，依赖检测新增 Daily Routines（可选）。"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.26.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.26.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.26.zip",
+    "LastUpdate": 1791378551,
+    "Changelog": "v2.4.0.26 修复「不分线地图卡在副本区切换流程」：DR 的「当前区域不存在可切换的副本」提示是屏幕 toast，不经过聊天频道，旧版靠聊天文本匹配永远收不到，导致 /pdr insc 后一直空等。现改为行为判定：发出 /pdr insc 后 15 秒内既无读图过渡、原生副本区号也无变化、且该地图从无分线证据（此前没读到过区号、Lifestream 也不知道多区）→ 判定本图不分线，立即继续寻路流程并把该地图记入不分线名单，之后不再尝试切区；若该地图有分线证据则继续等待（最长 180 秒超时兜底），避免把分线地图误记为不分线。另放宽聊天反馈的记录门槛（含「副本/切换/insc」即记录），便于后续从日志核对 DR 措辞。"
   }
 ]

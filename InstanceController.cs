@@ -57,6 +57,8 @@ internal static unsafe class InstanceController
 
     /// <summary>切换等待超时（秒）。DR 内部会走向水晶/传送（可自动重试），正常几十秒内完成。</summary>
     private const double SwitchTimeoutSeconds = 180.0;
+    /// <summary>短窗确认：发出 /pdr insc 后这么多秒内无读图过渡且区号未变 → 判定本图不可切换（无分线证据时）。</summary>
+    private const double ConfirmWindowSeconds = 15.0;
 
     public static int CachedInstanceCount => cachedInstanceCount;
     public static int CachedCurrentInstance => cachedCurrentInstance;
@@ -243,6 +245,31 @@ internal static unsafe class InstanceController
             return true;
         }
 
+        // 短窗确认：发出指令后 ConfirmWindow 秒内无读图过渡、原生区号未变、也无聊天反馈。
+        // DR 的「当前区域不存在可切换的副本」提示是屏幕 toast，不经过聊天频道，文本匹配永远收不到——
+        // 只能靠行为判定：真正的切区必然伴随读图过渡（传送/换区），没有过渡 = 没切。
+        if (elapsed > ConfirmWindowSeconds)
+        {
+            var here = Svc.ClientState.TerritoryType;
+            var hasEvidence = lineCapableTerritories.Contains(here)
+                || S.LifestreamIPC.GetInstanceCount() > 1
+                || GetNativeInstanceId() > 0;
+            if (!hasEvidence)
+            {
+                // 该地图从未表现出分线能力 → 记为不分线，后续不再尝试切区
+                nonInstancedTerritories.Add(here);
+                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 后 {ConfirmWindowSeconds:0}s 无读图过渡且原生区号未变化，"
+                    + $"判定地图 {here} 不可切换副本区（本图不分线），继续流程");
+                Notify.Info("当前地图不分副本区，继续流程");
+                return true;
+            }
+
+            // 该地图有分线证据（此前读到过区号 / Lifestream 已知多区）但 DR 没动作：
+            // 大概率 DR 模块未启用或指令未生效，不标记不分线（避免误记），按超时处理
+            PluginLog.Warning($"[AutoHunt] /pdr insc {switchTargetLine} 后 {ConfirmWindowSeconds:0}s 无任何反应，但地图 {here} 有分线证据"
+                + "（此前读到过区号）——请确认 DR「快捷副本区切换」模块已启用，继续等待或超时后跳过");
+        }
+
         if (elapsed > SwitchTimeoutSeconds)
         {
             PluginLog.Warning($"[AutoHunt] 副本区切换超过 {SwitchTimeoutSeconds:0} 秒未完成（DR 未反馈且无读图过渡），放弃等待并继续流程;"
@@ -262,7 +289,7 @@ internal static unsafe class InstanceController
     {
         var text = string.Concat(cm.Message.Payloads.OfType<TextPayload>().Select(p => p.Text));
         if (text.IsNullOrEmpty()) return;
-        if (!text.Contains("副本区") && !text.Contains("insc")) return;
+        if (!text.Contains("副本") && !text.Contains("insc") && !text.Contains("切换")) return;
 
         // 非调试模式下低频记录，便于从日志核对 DR 的实际反馈措辞（用于调宽匹配关键词）
         if (!P.Config.Debug && EzThrottler.Throttle("WYDrFeedback", 5000))
