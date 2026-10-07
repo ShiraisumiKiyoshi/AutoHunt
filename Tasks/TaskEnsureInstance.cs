@@ -14,6 +14,8 @@ public static class TaskEnsureInstance
     /// </summary>
     public static void Enqueue(int num)
     {
+        // 记录目标区号：切换完成后本插件就知道自己在几号区（原生读数偶发为 0 时的兜底依据）
+        InstanceController.NoteKnownLine(num);
         P.TaskManager.Enqueue(() => Player.Interactable && IsScreenReady(), "等待加载完成");
         P.TaskManager.Enqueue(() =>
         {

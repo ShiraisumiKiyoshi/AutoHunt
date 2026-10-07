@@ -3,7 +3,7 @@
     "Author": "雷霆大宝贝",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.23",
+    "AssemblyVersion": "2.4.0.24",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.23.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.23.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.23.zip",
-    "LastUpdate": 1791211632,
-    "Changelog": "v2.4.0.23 副本区切换稳定性与可诊断性：1) 击杀计数/切区决策/切区执行全部改为无条件写入日志（此前这些信息只在调试级，而 Dalamud 默认日志级别会丢弃 Debug 级，导致开调试模式也查不到线索），调试模式下的输出统一改为 [AutoHunt/DBG] 前缀的 Information 级；2) 修复「读到副本区号 0 时把击杀计数清零」——读图瞬间 InstanceId 可能瞬时为 0，旧逻辑会顺手清掉刚攒够的击杀数和待切换计划；3) 新增兜底：击杀满且允许立即切区，但 15 秒内既无新车头坐标、战斗流程也已空闲时主动发起切区，避免击杀满却一直不切区；4) 新增切换状态看门狗（超过 150 秒未完成则强制解除），避免后续车头坐标被一直当作“切换进行中”暂存吞掉；5) 调试模式每 3 秒输出一行击杀扫描汇总（参与中/待计数尸体/视野内狩猎怪/已计数/待切换/副本区号），可直接定位“为什么没切区”。"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.24.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.24.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.24.zip",
+    "LastUpdate": 1791374691,
+    "Changelog": "v2.4.0.24 修复「击杀满却不切副本区」的根因：1) 区号判定新增历史兜底——原生 InstanceId 属于「分线选择数据」，读图/传送后会间歇性读到 0（日志实证：遗产之地 1 线连续数分钟读到 0，而击杀计数 2/2 完全正常），旧逻辑此时直接放弃切区；现在优先用原生读数，读不到时回退到该地图最近一次已知区号（原生读到过 / 我方切换目标 / 车头切线指令），只有真的从未有过任何区号信息才放弃，并给出明确日志；2) 新增车头切线指令识别——「切换到“遗产之地②”」「…水晶换②线」这类指令此前完全没有被解析（分线号在聊天里是游戏私用区字形 ①②，已归一化），现在会登记为目标并作为权威依据执行，不再单纯依赖不可靠的原生读数；3) 切区不再丢失车头坐标——执行切区前会暂存当前车头坐标，切区完成后由主循环统一重放，保证切完线仍会前往车头坐标；4) 修复切区目标越界——Lifestream 区数读到 0/1（未学习/数据未就绪）时不再算出「3 号区」这种不存在的目标，也不会把假区号写进历史记录；5) 击杀计数日志补充地图与区号，便于直接排查。"
   }
 ]

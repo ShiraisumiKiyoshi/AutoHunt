@@ -43,6 +43,11 @@ internal static unsafe class HuntController
 
     private static TargetPosition? pendingTarget = null;
     private static TargetPosition? queuedTarget = null; // 车头提前发来的下一坐标：当前怪死亡前缓存，死亡后再执行
+
+    /// <summary>当前待前往 / 正在前往的车头坐标（含尚未执行的缓存坐标）。
+    /// 供副本区切换时暂存：切区完成后由主循环统一重放，保证"切区后一定去到车头坐标"。</summary>
+    public static TargetPosition? CurrentPendingTarget => pendingTarget ?? queuedTarget;
+
     private static bool navRefined = false; // 导航目的地已精化为怪物真实坐标（一次性）
     private static DateTime stateStartTime = DateTime.MinValue;
     private static Vector3 lastNavDest = Vector3.Zero;
