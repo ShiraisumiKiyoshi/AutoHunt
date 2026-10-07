@@ -8,25 +8,28 @@ namespace AutoHunt;
 /// </summary>
 internal static class DependencyChecker
 {
-    public readonly record struct Dep(string InternalName, string Label, string Feature, bool Required);
+    public readonly record struct Dep(string[] Names, string Label, string Feature, bool Required);
 
     private static readonly Dep[] Dependencies =
     {
-        new("vnavmesh", "vnavmesh", "寻路", true),
-        new("RotationSolver", "RotationSolver", "自动输出", false),
-        new("Lifestream", "Lifestream", "副本区切换/跨区传送", false),
+        new(new[] { "vnavmesh" }, "vnavmesh", "寻路", true),
+        new(new[] { "RotationSolver" }, "RotationSolver", "自动输出", false),
+        new(new[] { "DailyRoutines", "Daily Routines" }, "Daily Routines（DR）", "副本区切换（/pdr insc）", false),
+        new(new[] { "Lifestream" }, "Lifestream", "跨区传送", false),
     };
 
     /// <summary>插件是否已安装并加载（被禁用的插件不会加载，同样视为缺失）。检测失败时返回 true（不误报）。</summary>
-    public static bool IsInstalled(string internalName)
+    public static bool IsInstalled(string internalName) => IsInstalled(new[] { internalName });
+
+    private static bool IsInstalled(string[] names)
     {
         try
         {
-            return Svc.PluginInterface.InstalledPlugins.Any(p => p.InternalName == internalName && p.IsLoaded);
+            return Svc.PluginInterface.InstalledPlugins.Any(p => names.Contains(p.InternalName) && p.IsLoaded);
         }
         catch (Exception e)
         {
-            PluginLog.Warning($"检测插件 {internalName} 是否安装失败: {e.Message}");
+            PluginLog.Warning($"检测插件 {string.Join("/", names)} 是否安装失败: {e.Message}");
             return true;
         }
     }
@@ -34,8 +37,8 @@ internal static class DependencyChecker
     /// <summary>检查全部依赖并聊天提示缺失项。返回是否存在缺失（供延迟复核用）。</summary>
     public static bool CheckAndNotify()
     {
-        var missingRequired = Dependencies.Where(d => d.Required && !IsInstalled(d.InternalName)).ToList();
-        var missingOptional = Dependencies.Where(d => !d.Required && !IsInstalled(d.InternalName)).ToList();
+        var missingRequired = Dependencies.Where(d => d.Required && !IsInstalled(d.Names)).ToList();
+        var missingOptional = Dependencies.Where(d => !d.Required && !IsInstalled(d.Names)).ToList();
 
         if (missingRequired.Count > 0)
         {
@@ -56,7 +59,7 @@ internal static class DependencyChecker
     public static List<(string Label, string Feature, bool Installed, bool Required)> GetDependencyStatus()
     {
         return Dependencies
-            .Select(d => (d.Label, d.Feature, IsInstalled(d.InternalName), d.Required))
+            .Select(d => (d.Label, d.Feature, IsInstalled(d.Names), d.Required))
             .ToList();
     }
 }

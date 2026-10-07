@@ -14,6 +14,8 @@ internal class ArrivalData
     public uint Territory;
     /// <summary>到达后需要切换到的副本区号，0 = 不切区</summary>
     public int SwitchInstance = 0;
+    /// <summary>传送出发时的地图 TerritoryType（用于判定"跨图到达"→ 到达后自动 /pdr insc 1）</summary>
+    public uint FromTerritory = 0;
 }
 
 /// <summary>

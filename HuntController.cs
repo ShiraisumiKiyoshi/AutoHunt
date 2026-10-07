@@ -157,6 +157,7 @@ internal static unsafe class HuntController
                 Aetheryte = target.NearestAetheryte,
                 Territory = target.TerritoryId,
                 SwitchInstance = 0,
+                FromTerritory = Svc.ClientState.TerritoryType,
             };
             Notify.Info($"目标在其他地图，传送到 {target.AetheryteName}…");
         }
@@ -180,6 +181,7 @@ internal static unsafe class HuntController
                     Aetheryte = target.NearestAetheryte,
                     Territory = target.TerritoryId,
                     SwitchInstance = 0,
+                    FromTerritory = Svc.ClientState.TerritoryType,
                 };
                 Notify.Info($"距离目标较远，传送到 {target.AetheryteName}…");
             }
@@ -276,7 +278,6 @@ internal static unsafe class HuntController
                 // 短暂延迟后回到 Idle；期间有缓存的车头新坐标（当前怪死亡时到达的）则立即执行
                 if ((DateTime.Now - stateStartTime).TotalSeconds > 2)
                 {
-                    var pendingSwitch = InstanceController.PendingSwitchInstance;
                     if (queuedTarget != null)
                     {
                         var qt = queuedTarget;
@@ -287,43 +288,16 @@ internal static unsafe class HuntController
                         {
                             Dbg.Log(" 丢弃已击杀怪的重复缓存坐标");
                         }
-                        else if (pendingSwitch != 0)
+                        else if (InstanceController.TryBeginSameMapSwitch(qt))
                         {
-                            // 击杀数已满 + 已有下一坐标：传送时顺路切换副本区。
-                            // 此前这条路径会绕过切区判断（坐标在怪死亡前被缓存），
-                            // 导致切区永远不被触发、pendingSwitch 变成僵尸状态。
-                            InstanceController.ConsumePendingSwitch();
-                            // 暂存坐标：切区完成后由主循环继续前往
-                            P.HeldCoordinate = qt;
-                            P.TeleportTo = new ArrivalData
-                            {
-                                Aetheryte = qt.NearestAetheryte,
-                                Territory = qt.TerritoryId,
-                                SwitchInstance = pendingSwitch,
-                            };
-                            PluginLog.Information($"[AutoHunt] 击杀满 + 缓存坐标触发切区：前往下一坐标途中切到 {pendingSwitch} 号副本区");
-                            Notify.Info($"已击杀满，前往下一坐标途中切换到 {pendingSwitch} 号副本区…");
-                            Reset();
+                            // 击杀数已满 + 缓存坐标仍在本地图：传送水晶后 /pdr insc 下一区，
+                            // 切区完成后由主循环重放坐标继续前往（内部已 Reset 狩猎流程）
+                            PluginLog.Information("[AutoHunt] 击杀满 + 缓存坐标仍在本图：传送水晶后切换下一副本区");
                         }
                         else
                         {
                             OnNewCoordinate(qt); // 此时怪已死亡、停止输出已执行，直接进入新坐标流程
                         }
-                    }
-                    else if (pendingSwitch != 0 && InstanceController.PendingSwitchImmediateOk)
-                    {
-                        // 击杀满且同图还有下一个区：立即切换，不再苦等车头发坐标。
-                        // 本地图最后一个区（回绕到 1）不立即切——等车头的下一地图坐标，
-                        // 随传送把"到新图切 1 号区"带过去，避免原地切回 1 号区空转。
-                        if (P.TaskManager.IsBusy) return; // 任务链未结束：等待，不能落进 Reset 把切区计划晾死
-                        InstanceController.ConsumePendingSwitch();
-                        // 标记切换进行中：切换期间车头发来的坐标会被暂存（ChatMessageHandler），
-                        // 切区完成后由主循环统一消费，避免与切换任务冲突
-                        P.SwitchInProgress = true;
-                        P.SwitchStartTime = DateTime.Now;
-                        PluginLog.Information($"[AutoHunt] 击杀满且战斗流程结束：立即切到 {pendingSwitch} 号副本区");
-                        Notify.Info($"已击杀满，立即切换到 {pendingSwitch} 号副本区…");
-                        TaskEnsureInstance.Enqueue(pendingSwitch);
                     }
                     else
                     {

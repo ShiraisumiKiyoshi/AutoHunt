@@ -11,6 +11,8 @@ internal static class ChatMessageHandler
 
     internal static void Chat_ChatMessage(IHandleableChatMessage cm)
     {
+        // DR（Daily Routines）对 /pdr insc 的反馈：切区等待期间全程监听（不受车头过滤影响）
+        try { InstanceController.OnChatFeedback(cm); } catch { }
         try
         {
             Handle(cm);
@@ -92,9 +94,6 @@ internal static class ChatMessageHandler
 
         Dbg.Log($" 收到车头消息 ({cm.LogKind}){(selfMode ? " [自己即车头]" : "")}: {GetText(cm)}");
 
-        // 车头切线指令：解析并登记目标分线（不 return——这类消息通常同时带坐标，坐标照常处理）
-        TryHandleInstanceInstruction(cm);
-
         // 优先处理地图链接坐标
         foreach (var payload in cm.Message.Payloads)
         {
@@ -115,79 +114,6 @@ internal static class ChatMessageHandler
     private static string GetText(IHandleableChatMessage cm)
     {
         return string.Concat(cm.Message.Payloads.OfType<TextPayload>().Select(p => p.Text));
-    }
-
-    // "切换到"X②""（分线数字在聊天里是游戏私用区字形，见 NormalizeLineGlyphs）
-    private static readonly Regex SwitchToRegex = new("切换到[“\"]([^”\"]{1,24})[”\"]", RegexOptions.Compiled);
-    // "换②线" / "换 2 线"
-    private static readonly Regex ChangeLineRegex = new(@"换\s*([1-9])\s*线", RegexOptions.Compiled);
-
-    /// <summary>
-    /// 解析车头切线指令：常见两种表述——
-    ///  "请在坐标X②的大水晶，切换到"X②"，并等待目标！"
-    ///  "该换线啦！到X (31.6, 25.5)水晶换②线 ②线 ②线，等待车头报点！"
-    /// 分线号在聊天里通常渲染为游戏私用区字形（\ue0b1=①、\ue0b2=② …），
-    /// 先归一化成 ASCII 数字再提取。
-    /// 指令是切区的权威依据：原生 InstanceId 读数不可靠（会间歇性读到 0）时也能据此切区。
-    /// </summary>
-    private static void TryHandleInstanceInstruction(IHandleableChatMessage cm)
-    {
-        var text = GetText(cm);
-        if (text.IsNullOrEmpty()) return;
-        if (!text.Contains("切换到") && !text.Contains("换线")) return;
-
-        var normalized = NormalizeLineGlyphs(text);
-        int line = 0;
-
-        var m1 = SwitchToRegex.Match(normalized);
-        if (m1.Success) line = TrailingLineNumber(m1.Groups[1].Value);
-        if (line <= 0)
-        {
-            var m2 = ChangeLineRegex.Match(normalized);
-            if (m2.Success) int.TryParse(m2.Groups[1].Value, out line);
-        }
-        if (line <= 0) return;
-
-        // 指令指向的地图：优先取消息里的地图链接 territory；无链接则按当前地图处理
-        uint territory = 0;
-        foreach (var payload in cm.Message.Payloads)
-        {
-            if (payload is MapLinkPayload link)
-            {
-                territory = link.TerritoryType.RowId;
-                break;
-            }
-        }
-
-        Dbg.Log($" 解析到车头切线指令: 地图 {(territory == 0 ? "当前" : territory.ToString())} → {line} 号区");
-        InstanceController.OnConductorSwitchInstruction(territory, line);
-    }
-
-    /// <summary>把分线数字字形归一化为 ASCII 数字（\ue0b1..\ue0b9 / ①..⑨ / 全角１..９）。</summary>
-    private static string NormalizeLineGlyphs(string s)
-    {
-        var chars = new char[s.Length];
-        for (int i = 0; i < s.Length; i++)
-        {
-            var ch = s[i];
-            if (ch >= '\ue0b1' && ch <= '\ue0b9') chars[i] = (char)('1' + (ch - '\ue0b1'));
-            else if (ch >= '\u2460' && ch <= '\u2468') chars[i] = (char)('1' + (ch - '\u2460'));
-            else if (ch >= '\uff11' && ch <= '\uff19') chars[i] = (char)('1' + (ch - '\uff11'));
-            else chars[i] = ch;
-        }
-        return new string(chars);
-    }
-
-    /// <summary>取末尾数字（"遗产之地②" → 2）；末尾不是数字则返回 0。</summary>
-    private static int TrailingLineNumber(string s)
-    {
-        var t = s.Trim();
-        for (int i = t.Length - 1; i >= 0; i--)
-        {
-            if (char.IsDigit(t[i])) return t[i] - '0';
-            if (!char.IsWhiteSpace(t[i])) break;
-        }
-        return 0;
     }
 
     /// <summary>
@@ -272,39 +198,20 @@ internal static class ChatMessageHandler
         tp.MatchedNameId = matchNameId;
         tp.MatchedRank = matchRank;
 
-        // 判断击杀数是否已满，需要切换副本区
-        var pendingSwitch = InstanceController.PendingSwitchInstance;
-
-        // 副本区切换流程进行中（切区传送中 / 切区任务执行中）：
+        // 副本区切换流程进行中（DR 切区执行中 / 切区传送中）：
         // 车头会为迟到玩家重复发送坐标，此时绝不能走普通路径——
-        // 否则 OnNewCoordinate 会用 SwitchInstance=0 覆盖 TeleportTo，切区被吞掉，
-        // 表现为"传送到达后没切副本区，直接寻路去坐标"。
+        // 否则 OnNewCoordinate 会用 SwitchInstance=0 覆盖 TeleportTo，切区被吞掉。
         // 把最新坐标暂存，切区完成后由主循环自动继续前往。
-        if (pendingSwitch == 0 && (P.SwitchInProgress || (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0)))
+        if (P.SwitchInProgress || (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0))
         {
             P.HeldCoordinate = tp;
             Dbg.Log($" 副本区切换流程进行中，暂存车头坐标 ({targetWorld.X:0.0}, {targetWorld.Y:0.0})");
             return;
         }
 
-        if (pendingSwitch != 0)
-        {
-            InstanceController.ConsumePendingSwitch();
-            // 坐标必须暂存：切区完成后由主循环继续前往该坐标。
-            // 不暂存的话切完区没有任何寻路目标，表现为"切区/换图后不去车头坐标"。
-            P.HeldCoordinate = tp;
-            // 传送到目标坐标最近的水晶，到达后切换副本区
-            P.TeleportTo = new ArrivalData
-            {
-                Aetheryte = nearest,
-                Territory = targetTerritory,
-                SwitchInstance = pendingSwitch,
-            };
-            HuntController.Reset();
-            PluginLog.Information($"[AutoHunt] 车头新坐标触发切区：先传送至 {aetheryteName}（地图 {targetTerritory}），到达后切到 {pendingSwitch} 号副本区");
-            Notify.Info($"准备切换 {pendingSwitch} 号副本区，传送到 {aetheryteName}…");
-            return;
-        }
+        // 本区击杀已满且车头新坐标仍在本地图：
+        // 传送到距离坐标最近的水晶 → /pdr insc (当前区号+1) → 切换完成后继续前往坐标。
+        if (InstanceController.TryBeginSameMapSwitch(tp)) return;
 
         HuntController.OnNewCoordinate(tp);
     }

@@ -23,13 +23,11 @@ internal static class OperationTracker
                 if (CrossRegionController.Active)
                     return (Kind.CrossRegion, $"跨区 — {CrossRegionController.CurrentState}");
 
-                // 2. 副本区切换（切区任务执行中 / 待切换传送中）
+                // 2. 副本区切换（DR /pdr insc 执行中 / 切区传送中）
                 if (P.SwitchInProgress)
-                    return (Kind.InstanceSwitch, "副本区切换 — 执行中");
+                    return (Kind.InstanceSwitch, $"副本区切换 — 正在切到 {InstanceController.SwitchTargetLine} 号区（DR）");
                 if (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0)
                     return (Kind.InstanceSwitch, $"副本区切换 — 传送中（目标 {P.TeleportTo.SwitchInstance} 号区）");
-                if (InstanceController.PendingSwitchInstance != 0)
-                    return (Kind.InstanceSwitch, $"副本区切换 — 等待车头新坐标（目标 {InstanceController.PendingSwitchInstance} 号区）");
 
                 // 3. 自动获取车头
                 if (ConductorFetchService.Running)

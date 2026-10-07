@@ -27,6 +27,11 @@ public unsafe class AutoHunt : IDalamudPlugin
     internal DateTime SwitchStartTime = DateTime.MinValue;
     internal TargetPosition? HeldCoordinate = null;
 
+    // 到达后待执行的副本区号（>0 = 传送到达后需 /pdr insc N）。
+    // 延迟到完全落地（退出读图过渡、可交互）再执行：跨图落地瞬间 TerritoryChanged 触发
+    // OnArrival 时 BetweenAreas 往往仍有效，立刻发送会把上一段传送的过渡误判为切区的读图信号。
+    internal int PendingArrivalSwitch = 0;
+
     public AutoHunt(IDalamudPluginInterface pi)
     {
         P = this;
@@ -94,6 +99,7 @@ public unsafe class AutoHunt : IDalamudPlugin
         TeleportTo = null;
         SwitchInProgress = false;
         HeldCoordinate = null;
+        PendingArrivalSwitch = 0;
         WasBetweenAreas = false;
         try { S.VnavmeshIPC?.StopPath(); } catch { }
         Notify.Info("插件已关闭：已停止所有自动行为并清空操作队列。");
@@ -138,6 +144,7 @@ public unsafe class AutoHunt : IDalamudPlugin
                     TaskManager.RemainingTimeMS += pauseMs; // 当前任务的超时线顺延（排队任务启动时会重新计时，无需处理）
                 CrossRegionController.CompensatePause(pauseMs);
                 ConductorFetchService.CompensatePause(pauseMs);
+                InstanceController.CompensatePause(pauseMs);
                 if (SwitchInProgress) SwitchStartTime += TimeSpan.FromMilliseconds(pauseMs);
             }
             if (TaskManager.StepMode) TaskManager.StepMode = false;
@@ -156,11 +163,11 @@ public unsafe class AutoHunt : IDalamudPlugin
                 DependencyChecker.CheckAndNotify();
             }
 
-            // 副本区切换完成检测：任务链结束且 Lifestream 空闲（≥2 秒避免启动帧误判）→ 继续暂存的车头坐标
-            // 必须等 Lifestream 真正完成切区（含加载过渡）再派发，否则坐标流程会和切换的
-            // 下坐骑/传送撞在一起，落地后处于未骑乘状态直接进寻路
-            if (SwitchInProgress && (DateTime.Now - SwitchStartTime).TotalSeconds > 2
-                && !TaskManager.IsBusy && !(S.LifestreamIPC?.GetIsBusy() ?? false))
+            // 副本区切换完成检测（DR 快捷副本区切换 /pdr insc）：
+            // 由 InstanceController 依据「读图过渡 / 原生区号 / DR 反馈 / 超时」判定切换是否结束，
+            // 结束后继续暂存的车头坐标。必须等切换真正完成（含加载过渡）再派发，
+            // 否则坐标流程会和切换的传送撞在一起，落地后处于未骑乘状态直接进寻路。
+            if (SwitchInProgress && InstanceController.UpdateSwitchProgress())
             {
                 SwitchInProgress = false;
                 var held = HeldCoordinate;
@@ -170,15 +177,13 @@ public unsafe class AutoHunt : IDalamudPlugin
                     Notify.Info("副本区切换完成，继续前往车头坐标…");
                     HuntController.OnNewCoordinate(held);
                 }
-            }
-
-            // 看门狗：副本区切换状态残留超过 150 秒仍未解除（例如 Lifestream 一直报 busy）→ 强制解除。
-            // 不清除的话 ChatMessageHandler 会把之后每一条车头坐标都当成"切换进行中"暂存吞掉，
-            // 表现为"再也不切副本区、也不去车头坐标"。
-            if (SwitchInProgress && (DateTime.Now - SwitchStartTime).TotalSeconds > 150)
-            {
-                SwitchInProgress = false;
-                PluginLog.Warning("[AutoHunt] 副本区切换状态超过 150 秒未完成，已强制解除（避免后续车头坐标被一直暂存吞掉）");
+                else if (HuntController.CurrentState == HuntController.State.Teleporting)
+                {
+                    // 跨图到达后切 1 号区的场景：坐标流程已在 Teleporting 中等待，
+                    // 切区完成后继续前往（否则状态机会永远停在 Teleporting）
+                    Notify.Info("副本区切换完成，继续前往车头坐标…");
+                    HuntController.OnArrived();
+                }
             }
 
             if (!Player.Available) return;
@@ -188,6 +193,18 @@ public unsafe class AutoHunt : IDalamudPlugin
             // 记录移动状态（用于传送门控）
             IsMoving = Player.Position != LastPosition;
             LastPosition = Player.Position;
+
+            // 到达后的副本区切换：延迟到完全落地（可交互、退出读图过渡）再执行，
+            // 避免把上一段传送的 BetweenAreas 误当成切区自己的读图过渡（假完成）
+            if (PendingArrivalSwitch > 0 && !SwitchInProgress && !CrossRegionController.Active
+                && !P.TaskManager.IsBusy
+                && Player.Interactable
+                && !Svc.Condition[ConditionFlag.BetweenAreas] && !Svc.Condition[ConditionFlag.BetweenAreas51])
+            {
+                var line = PendingArrivalSwitch;
+                PendingArrivalSwitch = 0;
+                InstanceController.BeginDrSwitch(line);
+            }
 
             InstanceController.Update();
             EndMapWatcher.Update();
@@ -266,7 +283,7 @@ public unsafe class AutoHunt : IDalamudPlugin
     }
 
     /// <summary>
-    /// 到达传送目的地：中断任务链，按需切换副本区，触发狩猎流程。
+    /// 到达传送目的地：中断任务链，按需切换副本区（DR /pdr insc），触发狩猎流程。
     /// </summary>
     private void OnArrival()
     {
@@ -281,30 +298,20 @@ public unsafe class AutoHunt : IDalamudPlugin
 
         if (data.SwitchInstance > 0)
         {
-            if (InstanceController.IsInstancedAreaNow())
-            {
-                Notify.Info($"到达目的地，切换到 {data.SwitchInstance} 号副本区…");
-                SwitchInProgress = true;
-                SwitchStartTime = DateTime.Now;
-                // 注意：不清理 HeldCoordinate——传送期间/击杀满暂存的坐标要在切区完成后继续前往
-                TaskEnsureInstance.Enqueue(data.SwitchInstance);
-            }
-            else
-            {
-                Notify.Error($"当前地图不可切换副本区，直接前往坐标。");
-                // 不切区也要继续执行暂存的车头坐标（保证"一定去到车头坐标"）
-                var heldNow = HeldCoordinate;
-                HeldCoordinate = null;
-                if (heldNow != null)
-                {
-                    HuntController.OnNewCoordinate(heldNow);
-                }
-                else
-                {
-                    HuntController.OnArrived();
-                }
-            }
-            // 切区完成后，HuntController 继续等待/前往车头坐标
+            // 本区击杀满、车头新坐标仍在本图：已传送到坐标最近水晶，切下一副本区。
+            // 切区期间车头坐标由 HeldCoordinate 暂存，完成后由主循环重放。
+            PendingArrivalSwitch = data.SwitchInstance;
+            return;
+        }
+
+        // 通过车头坐标传送到不同地图：自动切换到 1 号副本区。
+        // DR 反馈「不存在可切换的副本区」= 本图不分线，插件会记住并跳过后续切区。
+        if (P.Config.AutoInstance && data.FromTerritory != 0
+            && data.FromTerritory != Svc.ClientState.TerritoryType
+            && !InstanceController.IsKnownNonInstanced(Svc.ClientState.TerritoryType))
+        {
+            PluginLog.Information($"[AutoHunt] 跨图到达（{data.FromTerritory} → {Svc.ClientState.TerritoryType}），落地后自动切换到 1 号副本区");
+            PendingArrivalSwitch = 1;
             return;
         }
 
@@ -323,6 +330,7 @@ public unsafe class AutoHunt : IDalamudPlugin
             TeleportTo = null;
             SwitchInProgress = false;
             HeldCoordinate = null;
+            PendingArrivalSwitch = 0;
             CrossRegionController.Reset();
             EndMapWatcher.Reset();
             ConductorFetchService.Cancel();

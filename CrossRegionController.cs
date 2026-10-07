@@ -131,11 +131,14 @@ internal static class CrossRegionController
             return;
         }
 
-        // 中断狩猎相关状态，独占控制权
+        // 中断狩猎相关状态，独占控制权。
+        // 按约定：本车次打完执行跨区操作前，清零所有地图副本区的击杀数
         P.TaskManager.Abort();
         P.TeleportTo = null;
         P.SwitchInProgress = false;
         P.HeldCoordinate = null;
+        P.PendingArrivalSwitch = 0;
+        InstanceController.ClearAllKillCounts();
         HuntController.Reset();
 
         Reset();

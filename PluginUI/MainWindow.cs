@@ -383,7 +383,7 @@ public class MainWindow : ConfigWindow
         var online = Conductor.FindNearest() != null;
         MetricCard(mw, "车头", online, $"{P.Config.Conductors.Count} 人", online ? ColGreen : ColGray);
         ImGui.SameLine(0, 10);
-        MetricCard(mw, "本区击杀", null,
+        MetricCard(mw, $"本区击杀——{InstanceController.CurrentAreaLabel()}", null,
             $"{InstanceController.KillCount} / {P.Config.KillsPerInstance}", InstanceController.ZoneCleared ? ColAmber : ColGreen);
         ImGui.SameLine(0, 10);
         MetricCard(mw, "副本区", null, $"{InstanceController.CachedCurrentInstance} / {InstanceController.CachedInstanceCount}", ColTxt);
@@ -400,6 +400,14 @@ public class MainWindow : ConfigWindow
             ImGui.SetTooltip("读取队员招募 → 全部 → 怪物狩猎中的全部招募人，设为车头（去重、替换现有列表、跳过自己）");
         ImGui.SameLine(0, 10);
         if (GhostButton("##gbCancel", IcX, "全部取消车头", warn: true)) Conductor.ClearAll();
+        ImGui.SameLine(0, 10);
+        if (GhostButton("##gbClearKills", IcSkull, "清空击杀数"))
+        {
+            InstanceController.ClearAllKillCounts();
+            Notify.Info("已清零所有地图副本区的击杀数。");
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("清零所有地图副本区的击杀数。\n击杀数按「地图+副本区」独立统计，换图/换副本区不清零；\n仅跨区前、关闭插件总开关或点击本按钮时清零。");
 
         // 当前操作
         var (kind, tagOp, detail) = OperationTracker.CurrentParts;
@@ -435,12 +443,14 @@ public class MainWindow : ConfigWindow
         if (InstanceController.ZoneCleared)
         {
             anyWarn = true;
-            Row(IcAlert, ColAmber, "本区击杀已满", "等待副本区切换（自动 · 每击杀 2 只）", tag: "切换中", tagCol: ColAmber);
+            Row(IcAlert, ColAmber, "本区击杀已满",
+                "车头下一坐标仍在本图时自动切换下一副本区", tag: "已满", tagCol: ColAmber);
         }
-        if (InstanceController.PendingSwitchInstance > 0)
+        if (P.SwitchInProgress)
         {
             anyWarn = true;
-            Row(IcAlert, ColAmber, $"待切换 {InstanceController.PendingSwitchInstance} 号副本区", "等待车头新坐标");
+            Row(IcAlert, ColAmber, $"正在切换 {InstanceController.SwitchTargetLine} 号副本区",
+                "DR 快捷副本区切换（/pdr insc）执行中", tag: "切换中", tagCol: ColAmber);
         }
         if (!Conductor.IsValid)
         {
@@ -481,7 +491,16 @@ public class MainWindow : ConfigWindow
 
         var fs = ImGui.GetFontSize();
         var font = ImGui.GetFont();
-        dl.AddText(font, fs, new(min.X + 14, min.Y + 9), ColSub, label);
+        // 标签超长时截断（如「本区击杀——遗产之地1线」），悬停显示完整文本
+        var maxLabelW = width - 28f;
+        var drawLabel = label;
+        if (ImGui.CalcTextSize(label).X > maxLabelW)
+        {
+            while (drawLabel.Length > 1 && ImGui.CalcTextSize(drawLabel + "…").X > maxLabelW)
+                drawLabel = drawLabel[..^1];
+            drawLabel += "…";
+        }
+        dl.AddText(font, fs, new(min.X + 14, min.Y + 9), ColSub, drawLabel);
         var vy = min.Y + 30;
         var vx = min.X + 14;
         if (online.HasValue)
@@ -494,6 +513,8 @@ public class MainWindow : ConfigWindow
 
         ImGui.SetCursorScreenPos(min);
         ImGui.Dummy(new Vector2(width, 58f));
+        if (drawLabel != label && ImGui.IsItemHovered())
+            ImGui.SetTooltip(label);
     }
 
     /// <summary>胶囊主按钮：左半切换总开关，右侧 ▼ 弹出快捷操作菜单。</summary>
@@ -592,7 +613,6 @@ public class MainWindow : ConfigWindow
         RowBegin();
         ToggleRow("插件总开关", "关闭时立即停止所有自动行为并清空操作队列", "##tEnabled", ref P.Config.Enabled);
         ToggleRow("自动输出（/rotation Manual）", "血量到达阈值后下坐骑并开始输出", "##tAutoAttack", ref P.Config.AutoAttack);
-        ToggleRow("自动切换副本区", $"每击杀 {P.Config.KillsPerInstance} 只自动切换，共 {InstanceController.CachedInstanceCount} 个副本区", "##tAutoInstance", ref P.Config.AutoInstance);
         ToggleRow("包含 B 级狩猎怪", "默认仅锁定 A / S 级（游戏数据表判定，零误判）", "##tIncludeB", ref P.Config.IncludeBRank);
         ToggleRow("启用狩猎怪出生点辅助", "车头坐标命中数据库出生点时，前往出生点等待并监控", "##tSpawn", ref P.Config.UseSpawnPoints);
         if (P.Config.UseSpawnPoints)
@@ -601,6 +621,15 @@ public class MainWindow : ConfigWindow
             if (ImGui.SliderFloat("出生点匹配半径 (米)", ref P.Config.SpawnMatchRadius, 30f, 300f)) EzConfig.Save();
         }
         RowEnd();
+
+        // 副本区切换（依赖 DR）
+        Sect("副本区切换");
+        RowBegin();
+        ToggleRow("自动切换副本区", "击杀满后自动切换下一副本区；跨图到达自动切 1 号区", "##tAutoInstance", ref P.Config.AutoInstance);
+        RowEnd();
+        ImGui.TextColored(ColSub, "依赖 Daily Routines（DR）插件的「快捷副本区切换」模块（/pdr insc）。");
+        ImGui.TextColored(ColSub, "击杀数按「地图+副本区」独立统计，换图/换区不清零；DR 提示本图不存在可切换的");
+        ImGui.TextColored(ColSub, "副本区时，该地图会被记为不分线并跳过切区。");
 
         // 流程参数
         Sect("流程参数");

@@ -37,7 +37,7 @@ public class Config : IEzConfig
     /// <summary>车头坐标与出生点的匹配半径（米）</summary>
     public float SpawnMatchRadius = 100f;
 
-    /// <summary>自动切换副本区</summary>
+    /// <summary>自动切换副本区（依赖 Daily Routines 的「快捷副本区切换」/pdr insc）</summary>
     public bool AutoInstance = true;
 
     /// <summary>上坐骑（vnavmesh 寻路前）</summary>

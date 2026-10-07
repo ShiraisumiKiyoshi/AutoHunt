@@ -1,108 +1,108 @@
-using AutoHunt.Tasks;
 using ECommons.GameHelpers;
-using ECommons.Automation.NeoTaskManager;
 namespace AutoHunt;
 
 /// <summary>
-/// 副本区控制器：
-/// 1) 首次传送到可切副本区的地图时，保证自己处于 1 号副本区；
-/// 2) 通过扫描战斗对象统计「玩家参与击杀」的怪物数量；
-/// 3) 击杀满 N 只（默认 2 只）后设置 pendingSwitchInstance，等待车头发送新坐标后传送切换。
+/// 副本区控制器（v2.4.0.25 起，副本区切换依赖 Daily Routines 的「快捷副本区切换」模块 /pdr insc）：
+/// 1) 击杀数按「地图 + 副本区」分桶独立统计，换图 / 换副本区不清零；
+///    只有跨区流程启动前、关闭插件总开关、手动「清空击杀数」才清零全部计数。
+/// 2) 通过扫描战斗对象统计「玩家参与击杀」的怪物数量。
+/// 3) 击杀满 N 只（默认 2 只）且车头下一坐标仍在本地图时：
+///    传送到距离坐标最近的水晶 → 执行 /pdr insc (当前区号+1) → 切换完成后继续寻路。
+///    通过车头坐标传送到不同地图时：执行 /pdr insc 1（DR 提示不存在可切换副本区 = 本图不分线）。
 /// </summary>
 internal static unsafe class InstanceController
 {
-    private static bool pendingEnsureInstanceOne = false;
-    private static readonly HashSet<uint> ensuredTerritories = new();
-    private static uint lastWorldId = 0; // 检测换服（跨区/回本区）：换服后"首次进图保证1号区"需对所有地图重新生效
+    // ===== 击杀计数（按 地图+副本区 分桶） =====
+
+    /// <summary>击杀计数桶：key = (地图 TerritoryType, 副本区号，0=未知/不分线)。</summary>
+    private static readonly Dictionary<(uint Territory, int Line), int> killCounts = new();
 
     /// <summary>参与过（正在打/打过）的怪物</summary>
     private static readonly HashSet<ulong> engagedMobIds = new();
     /// <summary>已计入击杀数量的死亡怪物（防重复计数）</summary>
     private static readonly HashSet<ulong> countedMobIds = new();
     /// <summary>已评估为非狩猎怪、明确不计数过的死亡怪物（防重复评估）。
-    /// 与 countedMobIds 分离：曾经评估为"不计数"不得阻塞后续 forceCount 补计
-    /// （修复：数据库未收录的怪被 ScanKills 预标记后，HuntController 的主动补计被挡住）</summary>
+    /// 与 countedMobIds 分离：曾经评估为"不计数"不得阻塞后续 forceCount 补计。</summary>
     private static readonly HashSet<ulong> skippedMobIds = new();
     /// <summary>插件主动选中过的怪（HuntController.TrackTarget 标记）。
     /// 这些怪死亡时即使狩猎怪数据库未收录也照常计数。</summary>
     private static readonly HashSet<ulong> markedMobIds = new();
 
-    private static int killCount = 0;
     private static uint lastInstanceId = 0;
 
-    /// <summary>击杀满后等待车头新坐标再切换的目标副本区号；0 = 无待切换</summary>
-    private static int pendingSwitchInstance = 0;
+    // 缓存的副本区信息（仅供 UI 展示；Lifestream 依赖内部"学习"状态，可能返回 0，不可用于流程判定）
+    private static int cachedInstanceCount = 0;
+    private static int cachedCurrentInstance = 0;
 
-    /// <summary>pendingSwitchInstance 是否为本地图最后一个区的回绕（current≥count，next=1）。
-    /// 回绕时不能立即切区——应等待车头发下一地图坐标，把"到新图切 1 号区"随传送带上；
-    /// 只有非回绕（同图还有下一个区）才允许击杀满后立即切换。</summary>
-    private static bool pendingSwitchImmediateOk = false;
+    // ===== 副本区号知识（原生读数 + 历史兜底） =====
 
-    /// <summary>pendingSwitchInstance 被设置的时刻（用于兜底触发判断）。</summary>
-    private static DateTime pendingSwitchSetAt = DateTime.MinValue;
-
-    /// <summary>已知存在分线的地图（读到过非 0 区号 / 收到车头切线指令 / 成功切换过）。
+    /// <summary>已知存在分线的地图（读到过非 0 区号 / 成功切换过）。
     /// 原生 InstanceId 是"分线选择数据"的一部分，会间歇性读到 0（数据未加载时），
     /// 不能凭一次 0 就断定该地图没有分线。</summary>
     private static readonly HashSet<uint> lineCapableTerritories = new();
 
-    /// <summary>各地图最近一次已知区号（原生读数或我方切换目标）。
-    /// 原生读数偶发为 0 时用它兜底，避免"击杀满却算不出目标区号 → 不切区"。</summary>
+    /// <summary>各地图最近一次已知区号（原生读数）。
+    /// 原生读数偶发为 0 时用它兜底，避免"击杀满却算不出当前区号 → 无法切区"。</summary>
     private static readonly Dictionary<uint, int> lastKnownLineByTerritory = new();
 
-    /// <summary>车头指定、待到达对应地图后再执行的切线目标（车头常在换图时一并下达切线指令）。
-    /// 带时间戳：超过 AnnouncedLineValidMinutes 未执行的指令视为过期（避免旧指令在很久后突然生效）。</summary>
-    private static readonly Dictionary<uint, (int Line, DateTime At)> announcedLineByTerritory = new();
+    /// <summary>DR 已明确反馈「不存在可切换的副本区」的地图（本图不分线，跳过一切切区动作）。</summary>
+    private static readonly HashSet<uint> nonInstancedTerritories = new();
 
-    /// <summary>车头切线指令的有效期（分钟）。</summary>
-    private const double AnnouncedLineValidMinutes = 30.0;
+    // ===== DR 副本区切换状态机 =====
 
-    /// <summary>击杀满后等待多久仍无人消费切区计划（无新车头坐标且战斗流程早已结束）就兜底主动切区。</summary>
-    private const double PendingSwitchStuckSeconds = 15.0;
+    private static int switchTargetLine = 0;
+    private static DateTime switchStartedAt = DateTime.MinValue;
+    private static bool switchSawBetweenAreas = false;
+    private static bool drSaidNoInstance = false;
 
-    // 缓存的副本区信息（避免 UI / 高频逻辑反复调 IPC）
-    private static int cachedInstanceCount = 0;
-    private static int cachedCurrentInstance = 0;
+    /// <summary>切换等待超时（秒）。DR 内部会走向水晶/传送（可自动重试），正常几十秒内完成。</summary>
+    private const double SwitchTimeoutSeconds = 180.0;
 
-    public static int KillCount => killCount;
-    public static int PendingSwitchInstance => pendingSwitchInstance;
-    /// <summary>击杀满后是否允许立即切换副本区（同图还有下一个区）</summary>
-    public static bool PendingSwitchImmediateOk => pendingSwitchImmediateOk;
     public static int CachedInstanceCount => cachedInstanceCount;
     public static int CachedCurrentInstance => cachedCurrentInstance;
+    public static int SwitchTargetLine => switchTargetLine;
 
-    /// <summary>
-    /// 本区击杀是否已满（即状态页显示 2/2 的时刻）。
-    /// 注意：可切区地图上击杀满时 killCount 会被清零转入待切换状态，
-    /// 因此「击杀数 ≥ 配置值」或「存在待切换副本区」任一成立即为已满。
-    /// 不可切区地图上击杀数会保持满值，同样能判定。
-    /// </summary>
-    public static bool ZoneCleared => killCount >= P.Config.KillsPerInstance || pendingSwitchInstance != 0;
+    /// <summary>当前「地图 + 副本区」桶的击杀数。</summary>
+    public static int KillCount
+    {
+        get
+        {
+            var t = Svc.ClientState.TerritoryType;
+            if (t == 0) return 0;
+            return killCounts.TryGetValue((t, GetBestKnownInstanceId()), out var v) ? v : 0;
+        }
+    }
 
-    /// <summary>切换地图时调用。</summary>
+    /// <summary>当前地图+副本区的击杀数是否已达配置值。</summary>
+    public static bool IsKillCountFull => KillCount >= P.Config.KillsPerInstance;
+
+    /// <summary>本区击杀是否已满（结束地图自动跨区的触发条件）。</summary>
+    public static bool ZoneCleared => IsKillCountFull;
+
+    /// <summary>清零所有地图副本区的击杀数（跨区前 / 关闭总开关 / 手动清空按钮）。</summary>
+    public static void ClearAllKillCounts()
+    {
+        if (killCounts.Count == 0) return;
+        killCounts.Clear();
+        PluginLog.Information("[AutoHunt] 已清零所有地图副本区的击杀数");
+    }
+
+    /// <summary>切换地图时调用：击杀数分桶保留，仅清理对象去重集合（对象 ID 换图后失效）。</summary>
     public static void OnTerritoryChanged(uint territory)
     {
-        killCount = 0;
         engagedMobIds.Clear();
         countedMobIds.Clear();
         skippedMobIds.Clear();
         markedMobIds.Clear();
+        lastInstanceId = 0;
         cachedInstanceCount = 0;
         cachedCurrentInstance = 0;
-        // 手动传送/切图后，"击杀满等待新坐标切区"的计划已过期：
-        // 不清除的话 ZoneCleared 恒为 true，到达结束地图会立刻误触发解散跨区
-        pendingSwitchInstance = 0;
-        pendingSwitchImmediateOk = false;
-        pendingSwitchSetAt = DateTime.MinValue;
-        // 注意：首次进图"保证 1 号副本区"的检测不在事件里做——
-        // TerritoryChanged 触发瞬间（读图中）副本区数据尚未就绪，GetInstanceCount 返回 1，
-        // 在这里判定会错过时机且不会重试；改由 Update() 每秒重试直到读到有效数据。
     }
 
     /// <summary>
     /// 当前是否处于可切换副本区的地图（游戏原生判定：InstanceId≠0）。
-    /// 不要用 Lifestream 的 GetInstanceCount 判定——它依赖 Lifestream 自己"学习"的地图数据，
-    /// 未学习过的地图返回 0，会导致可切区的地图被误判为不可切。
+    /// 注意：读图/传送后原生读数会间歇性为 0，不能凭 0 断定不可切区——
+    /// 权威判定来自 DR 的反馈（nonInstancedTerritories）。
     /// </summary>
     public static bool IsInstancedAreaNow()
     {
@@ -110,34 +110,12 @@ internal static unsafe class InstanceController
         return ui != null && ui->PublicInstance.InstanceId != 0;
     }
 
-    /// <summary>当前所在副本区号（游戏原生，0=不可切区地图）。</summary>
+    /// <summary>当前所在副本区号（游戏原生，0=不可切区地图/数据未就绪）。</summary>
     public static int GetNativeInstanceId()
     {
         var ui = FFXIVClientStructs.FFXIV.Client.Game.UI.UIState.Instance();
         return ui != null ? (int)ui->PublicInstance.InstanceId : 0;
     }
-
-    /// <summary>外部请求保证 1 号副本区（跨图传送到达后）。</summary>
-    public static void RequestEnsureInstanceOne() => pendingEnsureInstanceOne = true;
-
-    /// <summary>当前地图是否有分线：原生读数（非 0）或已有历史证据（读到过/车头切线/切换过）。</summary>
-    public static bool IsLineCapableHere()
-        => IsInstancedAreaNow() || lineCapableTerritories.Contains(Svc.ClientState.TerritoryType);
-
-    /// <summary>该地图是否有分线的历史证据。</summary>
-    public static bool HasLineEvidence(uint territory) => lineCapableTerritories.Contains(territory);
-
-    /// <summary>狩猎流程是否正处于"不可打断"的阶段（传送/选怪/攻击/输出/收尾）。
-    /// 切分线会下坐骑并触发读图，必须避开这些阶段，否则会把正在进行的战斗打断在半途。
-    /// 反过来 Idle / Mounting / Navigating / Arrived 阶段切区是安全的（切完由主循环重放坐标）。</summary>
-    private static bool IsHuntFlowBusy() =>
-        HuntController.CurrentState is HuntController.State.Teleporting
-            or HuntController.State.Targeting
-            or HuntController.State.Attacking
-            or HuntController.State.Descending
-            or HuntController.State.Dismounting
-            or HuntController.State.Outputting
-            or HuntController.State.Finished;
 
     /// <summary>该地图最近一次已知区号（0 = 未知）。</summary>
     public static int GetLastKnownLine(uint territory)
@@ -160,6 +138,29 @@ internal static unsafe class InstanceController
         return GetLastKnownLine(territory);
     }
 
+    /// <summary>DR 是否已反馈该地图不存在可切换的副本区（不分线）。</summary>
+    public static bool IsKnownNonInstanced(uint territory) => nonInstancedTerritories.Contains(territory);
+
+    /// <summary>地图名称（TerritoryType → PlaceName，读取失败返回空串）。</summary>
+    public static string GetMapName(uint territory)
+    {
+        try
+        {
+            return Svc.Data.GetExcelSheet<TerritoryType>().GetRow(territory)
+                .PlaceName.ValueNullable?.Name.ToString() ?? "";
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>主页「本区击杀」显示文本：地图名 + 副本区（如「遗产之地1线」）；不分线/区号未知时只显示地图名。</summary>
+    public static string CurrentAreaLabel()
+    {
+        var name = GetMapName(Svc.ClientState.TerritoryType);
+        if (name.IsNullOrEmpty()) return "";
+        var line = GetBestKnownInstanceId();
+        return line > 0 ? $"{name}{line}线" : name;
+    }
+
     /// <summary>记录一次已知区号（原生读到 / 我方切换目标）。</summary>
     public static void NoteKnownLine(int line, uint? territory = null)
     {
@@ -168,24 +169,6 @@ internal static unsafe class InstanceController
         if (t == 0) return;
         lineCapableTerritories.Add(t);
         lastKnownLineByTerritory[t] = line;
-    }
-
-    /// <summary>
-    /// 车头切线指令（"请在坐标X②的大水晶切换到"X②""/"该换线啦…换②线"）。
-    /// 车头指令是权威依据：原生区号读数不可靠时也能据此切区。
-    /// territory = 指令指向的地图；line = 目标分线号（1..9）。
-    /// </summary>
-    public static void OnConductorSwitchInstruction(uint territory, int line)
-    {
-        if (line <= 0) return;
-        if (territory == 0) territory = Svc.ClientState.TerritoryType;
-        if (territory == 0) return;
-
-        lineCapableTerritories.Add(territory);
-        announcedLineByTerritory[territory] = (line, DateTime.Now);
-        PluginLog.Information(territory == Svc.ClientState.TerritoryType
-            ? $"[AutoHunt] 车头切线指令：当前地图切到 {line} 号区（待执行）"
-            : $"[AutoHunt] 车头切线指令：地图 {territory} 切到 {line} 号区（到达后执行）");
     }
 
     /// <summary>
@@ -199,55 +182,177 @@ internal static unsafe class InstanceController
         if (mobId != 0) markedMobIds.Add(mobId);
     }
 
-    /// <summary>取出待切换的副本区号（并清空等待状态）。</summary>
-    public static int ConsumePendingSwitch()
+    // ===== DR 副本区切换 =====
+
+    /// <summary>
+    /// 发起 DR 副本区切换：发送 /pdr insc N 并进入等待状态。
+    /// 切换期间车头坐标由 P.HeldCoordinate 暂存，完成后由主循环重放。
+    /// </summary>
+    public static void BeginDrSwitch(int targetLine)
     {
-        var n = pendingSwitchInstance;
-        pendingSwitchInstance = 0;
-        pendingSwitchImmediateOk = false;
-        pendingSwitchSetAt = DateTime.MinValue;
-        return n;
+        if (targetLine < 1)
+        {
+            PluginLog.Warning($"[AutoHunt] 收到非法副本区号 {targetLine}，跳过切区");
+            return;
+        }
+        switchTargetLine = targetLine;
+        switchStartedAt = DateTime.Now;
+        switchSawBetweenAreas = false;
+        drSaidNoInstance = false;
+        P.SwitchInProgress = true;
+        P.SwitchStartTime = DateTime.Now;
+        Chat.ExecuteCommand($"/pdr insc {targetLine}");
+        Notify.Info($"正在切换到 {targetLine} 号副本区（DR 快捷副本区切换）…");
+        PluginLog.Information($"[AutoHunt] 已发送 /pdr insc {targetLine}（地图 {Svc.ClientState.TerritoryType}），等待 DR 完成切换");
+    }
+
+    /// <summary>
+    /// 切区等待推进。返回 true = 切换流程结束（成功 / DR 反馈不分线 / 超时），可继续后续流程。
+    /// 仅在 P.SwitchInProgress 为 true 时由主循环调用。
+    /// </summary>
+    public static bool UpdateSwitchProgress()
+    {
+        if (!P.SwitchInProgress) return true;
+        var elapsed = (DateTime.Now - switchStartedAt).TotalSeconds;
+
+        // 读图过渡中（DR 切区会传送/换区）：记住见过过渡，等它结束
+        if (Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51])
+        {
+            switchSawBetweenAreas = true;
+            return false;
+        }
+
+        // DR 明确反馈本图不存在可切换的副本区 → 本图不分线，直接继续
+        if (drSaidNoInstance)
+        {
+            PluginLog.Information($"[AutoHunt] DR 反馈地图 {Svc.ClientState.TerritoryType} 不存在可切换的副本区（本图不分线），继续流程");
+            return true;
+        }
+
+        // 已发生读图过渡且过渡结束 → 切区动作已完成（新区号稍后由原生读数刷新）
+        if (switchSawBetweenAreas && elapsed > 3)
+        {
+            PluginLog.Information($"[AutoHunt] 副本区切换完成（观察到读图过渡，目标 {switchTargetLine} 号区，耗时 {elapsed:0}s）");
+            return true;
+        }
+
+        // 未触发读图但原生区号已等于目标（典型：已在目标区，DR 无需动作）
+        if (elapsed > 5 && GetNativeInstanceId() == switchTargetLine)
+        {
+            PluginLog.Information($"[AutoHunt] 副本区切换完成（已在 {switchTargetLine} 号区，无需切换，耗时 {elapsed:0}s）");
+            return true;
+        }
+
+        if (elapsed > SwitchTimeoutSeconds)
+        {
+            PluginLog.Warning($"[AutoHunt] 副本区切换超过 {SwitchTimeoutSeconds:0} 秒未完成（DR 未反馈且无读图过渡），放弃等待并继续流程;"
+                + "请确认已安装 Daily Routines 并启用「快捷副本区切换」模块");
+            Notify.Error("副本区切换超时，已跳过并继续流程。请确认 DR 插件已启用「快捷副本区切换」模块。");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 监听 DR（Daily Routines）对 /pdr insc 的聊天反馈。
+    /// 由 ChatMessageHandler 对每条聊天消息调用（不受车头过滤影响）。
+    /// </summary>
+    public static void OnChatFeedback(IHandleableChatMessage cm)
+    {
+        var text = string.Concat(cm.Message.Payloads.OfType<TextPayload>().Select(p => p.Text));
+        if (text.IsNullOrEmpty()) return;
+        if (!text.Contains("副本区") && !text.Contains("insc")) return;
+
+        // 非调试模式下低频记录，便于从日志核对 DR 的实际反馈措辞（用于调宽匹配关键词）
+        if (!P.Config.Debug && EzThrottler.Throttle("WYDrFeedback", 5000))
+            PluginLog.Information($"[AutoHunt] DR/切区相关反馈: {text}");
+        Dbg.Log($" DR/切区相关反馈: {text}");
+
+        if (!P.SwitchInProgress) return;
+
+        // 不存在可切换的副本区（本图不分线）。措辞按 DR 实际输出宽匹配，
+        // 命中即把本图标记为不分线，后续不再尝试切区。
+        if (text.Contains("不存在") || text.Contains("不支持") || text.Contains("没有可") || text.Contains("无法切换"))
+        {
+            nonInstancedTerritories.Add(Svc.ClientState.TerritoryType);
+            drSaidNoInstance = true;
+        }
+    }
+
+    /// <summary>
+    /// 击杀已满且车头新坐标仍在本地图 → 安排「传送最近水晶 → /pdr insc 当前区号+1」。
+    /// 条件满足时设置 TeleportTo 与 HeldCoordinate 并返回 true；否则返回 false 走普通坐标流程。
+    /// </summary>
+    public static bool TryBeginSameMapSwitch(TargetPosition tp)
+    {
+        if (!P.Config.Enabled || !P.Config.AutoInstance) return false;
+        if (P.SwitchInProgress || (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0)) return false;
+        if (tp == null || tp.TerritoryId != Svc.ClientState.TerritoryType) return false;
+        if (!IsKillCountFull) return false;
+        if (nonInstancedTerritories.Contains(tp.TerritoryId)) return false;
+
+        var cur = GetBestKnownInstanceId();
+        if (cur < 1)
+        {
+            Dbg.Log(" 击杀已满且车头坐标在本图，但读不到当前副本区号（原生=0 且无历史记录），无法安排切区");
+            return false;
+        }
+
+        // 已是本图最后一个副本区（Lifestream 已学习到区数且当前已到顶）：
+        // 不切区——车头接下来大概率带去下一地图，直接前往坐标即可，
+        // 也避免对不存在的「下一区」发 /pdr insc 空转
+        var knownCount = S.LifestreamIPC.GetInstanceCount();
+        if (knownCount > 1 && cur >= knownCount)
+        {
+            Dbg.Log($" 已在最后一个副本区（{cur}/{knownCount}），跳过切区，直接前往车头坐标");
+            return false;
+        }
+
+        var next = cur + 1;
+        P.HeldCoordinate = tp;
+        P.TeleportTo = new ArrivalData
+        {
+            Aetheryte = tp.NearestAetheryte,
+            Territory = tp.TerritoryId,
+            SwitchInstance = next,
+            FromTerritory = Svc.ClientState.TerritoryType,
+        };
+        HuntController.Reset();
+        PluginLog.Information($"[AutoHunt] 击杀已满（{KillCount}/{P.Config.KillsPerInstance}）且车头新坐标仍在本地图："
+            + $"先传送至 {tp.AetheryteName}，到达后 /pdr insc {next}（当前 {cur} 号区）");
+        Notify.Info($"本区击杀已满，传送 {tp.AetheryteName} 后切换到 {next} 号副本区…");
+        return true;
     }
 
     public static void Update()
     {
         if (S.LifestreamIPC == null) return;
 
-        // 副本区变化时重置击杀计数（切换副本区/进入新地图）
-        // 注意：登录/读图瞬间 UIState.Instance() 可能为 null，必须判空
+        // 副本区变化检测（只认非 0 读数变化；0 只是数据未就绪，不代表换区）。
+        // 击杀数按「地图+副本区」分桶保存，换区不清零——仅清理对象去重集合
+        //（换区后对象表已刷新，对象 ID 可能被复用）。
         var uiState = FFXIVClientStructs.FFXIV.Client.Game.UI.UIState.Instance();
         if (uiState != null)
         {
             var instId = uiState->PublicInstance.InstanceId;
-            // ⚠️ instId==0 只代表「当前地图不可切副本区」或「读图瞬间数据未就绪」，
-            // 并不代表真的换了副本区。旧代码对 0 也走"已变化"分支，会把刚攒够的
-            // 击杀计数与待切换计划一起清零（典型症状：击杀满却不切区、计数莫名归零）。
-            // 因此这里只认非 0 的变化，并且只有从已知区号变化时才做重置。
             if (instId != 0 && instId != lastInstanceId)
             {
                 var prev = lastInstanceId;
                 lastInstanceId = instId;
+                var territory = Svc.ClientState.TerritoryType;
                 // 读到非 0 区号 = 该地图确有分线（记录证据 + 记住当前区号）
-                lineCapableTerritories.Add(Svc.ClientState.TerritoryType);
-                lastKnownLineByTerritory[Svc.ClientState.TerritoryType] = (int)instId;
+                lineCapableTerritories.Add(territory);
+                lastKnownLineByTerritory[territory] = (int)instId;
+                engagedMobIds.Clear();
+                countedMobIds.Clear();
+                skippedMobIds.Clear();
+                markedMobIds.Clear();
                 if (prev != 0)
-                {
-                    killCount = 0;
-                    countedMobIds.Clear();
-                    skippedMobIds.Clear();
-                    engagedMobIds.Clear();
-                    markedMobIds.Clear();
-                    // 副本区已变化（含手动切换）：原计划的切区目标作废，
-                    // 否则僵尸 pendingSwitch 会让 ZoneCleared 恒为 true（结束地图误解散）
-                    pendingSwitchInstance = 0;
-                    pendingSwitchImmediateOk = false;
-                    pendingSwitchSetAt = DateTime.MinValue;
-                    PluginLog.Information($"[AutoHunt] 副本区已切换：{prev} → {instId}，击杀计数与待切换计划已重置");
-                }
+                    PluginLog.Information($"[AutoHunt] 副本区已切换：{prev} → {instId}"
+                        + $"（当前桶击杀 {GetBucketCount(territory, (int)instId)}/{P.Config.KillsPerInstance}，计数分桶保留）");
                 else
-                {
-                    PluginLog.Information($"[AutoHunt] 进入副本区 {instId}，击杀计数从 0 开始");
-                }
+                    PluginLog.Information($"[AutoHunt] 进入副本区 {instId}（当前桶击杀 {GetBucketCount(territory, (int)instId)}/{P.Config.KillsPerInstance}）");
             }
         }
 
@@ -257,123 +362,16 @@ internal static unsafe class InstanceController
             ScanKills();
         }
 
-        // 定期刷新副本区信息缓存（供 UI 显示）
+        // 定期刷新副本区信息缓存（仅供 UI 显示）
         if (EzThrottler.Throttle("WYInstanceCache", 2000))
         {
             cachedInstanceCount = S.LifestreamIPC.GetInstanceCount();
             cachedCurrentInstance = S.LifestreamIPC.GetCurrentInstanceNumber();
         }
-
-        // 车头切线指令（权威依据）：车头常在报坐标时一并指定分线（"到遗产之地 ② 号区水晶…"）。
-        // 原生 InstanceId 会间歇性读到 0，只靠它判断区号不可靠 —— 车头指令是更权威的来源。
-        // 到达指令指向的地图、且狩猎流程处于"可打断"阶段（非战斗/输出）时执行。
-        if (P.Config.Enabled && P.Config.AutoInstance && announcedLineByTerritory.Count > 0
-            && pendingSwitchInstance == 0 && !P.SwitchInProgress && !P.TaskManager.IsBusy
-            && !Svc.Condition[ConditionFlag.InCombat] && !Svc.Condition[ConditionFlag.Casting]
-            && !IsHuntFlowBusy()
-            && Player.Interactable && IsScreenReady()
-            && !Svc.Condition[ConditionFlag.BetweenAreas] && !Svc.Condition[ConditionFlag.BetweenAreas51])
-        {
-            var here = Svc.ClientState.TerritoryType;
-            if (announcedLineByTerritory.TryGetValue(here, out var announced))
-            {
-                announcedLineByTerritory.Remove(here);
-                var (announcedLine, announcedAt) = announced;
-                if ((DateTime.Now - announcedAt).TotalMinutes > AnnouncedLineValidMinutes)
-                {
-                    PluginLog.Information($"[AutoHunt] 车头切线指令（{announcedLine} 号区）已过期（{AnnouncedLineValidMinutes:0} 分钟），忽略");
-                }
-                else if (announcedLine > 0 && GetBestKnownInstanceId() != announcedLine)
-                {
-                    // 切区会触发传送读图、打断寻路：先把当前车头坐标暂存，
-                    // 切区完成后由主循环统一重放 —— 否则切完线就停在原地不再去车头坐标。
-                    P.HeldCoordinate ??= HuntController.CurrentPendingTarget;
-                    P.SwitchInProgress = true;
-                    P.SwitchStartTime = DateTime.Now;
-                    Notify.Info($"按车头指令切换到 {announcedLine} 号副本区…");
-                    PluginLog.Information($"[AutoHunt] 执行车头切线指令：地图 {here} → {announcedLine} 号区"
-                        + $"（当前区号 {GetBestKnownInstanceId()}，暂存坐标 {(P.HeldCoordinate != null ? "有" : "无")}）");
-                    TaskEnsureInstance.Enqueue(announcedLine);
-                }
-                else
-                {
-                    PluginLog.Information($"[AutoHunt] 车头切线指令（{announcedLine} 号区）与当前区号一致，跳过");
-                }
-            }
-        }
-
-        // 兜底触发切区：击杀已满 + 允许立即切区，但超过 15 秒仍无人消费该计划
-        // （既没有车头发来新坐标，HuntController 也早已回到 Idle —— 典型是击杀发生在
-        //  插件战斗流程之外）。没有这一步，pendingSwitch 会变成僵尸、表现为"击杀满却不切区"。
-        if (pendingSwitchInstance != 0 && pendingSwitchImmediateOk && !P.SwitchInProgress
-            && pendingSwitchSetAt != DateTime.MinValue
-            && (DateTime.Now - pendingSwitchSetAt).TotalSeconds > PendingSwitchStuckSeconds
-            && HuntController.CurrentState == HuntController.State.Idle
-            && !P.TaskManager.IsBusy
-            && Player.Interactable && IsScreenReady()
-            && !Svc.Condition[ConditionFlag.BetweenAreas] && !Svc.Condition[ConditionFlag.BetweenAreas51]
-            && IsLineCapableHere())
-        {
-            var fallbackTarget = ConsumePendingSwitch();
-            P.SwitchInProgress = true;
-            P.SwitchStartTime = DateTime.Now;
-            Notify.Info($"击杀已满且长时间未收到新车头坐标，立即切换到 {fallbackTarget} 号副本区…");
-            PluginLog.Information($"[AutoHunt] 兜底触发副本区切换：击杀满后 {PendingSwitchStuckSeconds:0} 秒无新坐标且战斗流程空闲 → 目标 {fallbackTarget} 号区");
-            TaskEnsureInstance.Enqueue(fallbackTarget);
-        }
-
-        // 首次进入可切副本区的地图 → 保证 1 号副本区
-        // 读图后副本区数据延迟就绪，这里每秒重试；用原生判定（Lifestream 的
-        // GetInstanceCount 依赖其"学习"的地图数据，未学习过的地图返回 0，不可靠）
-        if (P.Config.Enabled && P.Config.AutoInstance && EzThrottler.Throttle("WYEnsureScan", 1000))
-        {
-            // 换服检测：地图 ID 全大区通用，跨区后 ensuredTerritories 里的记录
-            // 会让"首次进图保证 1 号区"被误跳过（本区去过 ≠ 新区去过）→ 换服即清空重新判定
-            if (Player.Available)
-            {
-                var wid = Player.Object.CurrentWorld.RowId;
-                if (wid != 0 && wid != lastWorldId)
-                {
-                    lastWorldId = wid;
-                    ensuredTerritories.Clear();
-                    Dbg.Log($" 检测到换服（WorldId={wid}），已重置各地图的首次进图副本区保证记录");
-                }
-            }
-
-            var territory = Svc.ClientState.TerritoryType;
-            if (territory != 0 && !ensuredTerritories.Contains(territory) && IsLineCapableHere())
-            {
-                ensuredTerritories.Add(territory);
-                pendingEnsureInstanceOne = true;
-            }
-        }
-
-        if (!pendingEnsureInstanceOne) return;
-        if (P.TaskManager.IsBusy) return;
-        if (!Player.Interactable || !IsScreenReady()) return;
-        if (Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51]) return;
-
-        pendingEnsureInstanceOne = false;
-        if (!IsLineCapableHere()) return;
-
-        // 车头已针对本图下达切线指令 → 以车头指令为准，不抢着切 1 号区
-        // （否则刚落地就被切到 1 号区，与车头要求的区号打架，来回切）
-        if (announcedLineByTerritory.ContainsKey(Svc.ClientState.TerritoryType))
-        {
-            P.HeldCoordinate ??= HuntController.CurrentPendingTarget;
-            PluginLog.Information("[AutoHunt] 本图已有车头切线指令，跳过「首次进入保证 1 号区」，交由车头指令执行");
-            return;
-        }
-
-        if (GetBestKnownInstanceId() != 1)
-        {
-            Notify.Info("首次进入该地图，切换到 1 号副本区…");
-            // 切区会打断寻路：先暂存当前车头坐标，切区完成后由主循环重放
-            P.HeldCoordinate ??= HuntController.CurrentPendingTarget;
-            HuntController.Reset();
-            TaskEnsureInstance.Enqueue(1);
-        }
     }
+
+    private static int GetBucketCount(uint territory, int line)
+        => killCounts.TryGetValue((territory, line), out var v) ? v : 0;
 
     /// <summary>
     /// 扫描周围战斗对象：标记玩家参与的怪物，检测其死亡并计数。
@@ -423,8 +421,6 @@ internal static unsafe class InstanceController
             else
             {
                 // 死亡：若之前参与过且未评估 → 尝试计数。
-                // 注意：不再预先 countedMobIds.Add——集合管理统一交给 OnMobKilled，
-                // 避免"评估为不计数"的怪被误标记成"已计数"而挡住 forceCount 补计。
                 if (engagedMobIds.Contains(npc.GameObjectId)
                     && !countedMobIds.Contains(npc.GameObjectId)
                     && !skippedMobIds.Contains(npc.GameObjectId))
@@ -435,8 +431,7 @@ internal static unsafe class InstanceController
             }
         }
 
-        // 调试：每 3 秒汇总一次扫描结果。"击杀满却不切区"绝大多数是这里没数到怪，
-        // 这一行能直接区分「参与判定没命中」/「不是狩猎怪」/「副本区号读不到」三种情况。
+        // 调试：每 3 秒汇总一次扫描结果，能直接区分「参与判定没命中」/「不是狩猎怪」/「区号读不到」。
         if (P.Config.Debug && EzThrottler.Throttle("WYScanDiag", 3000))
         {
             var aliveEngaged = 0;
@@ -455,9 +450,12 @@ internal static unsafe class InstanceController
                 if (engagedMobIds.Contains(b.GameObjectId)) aliveEngaged++;
                 if (HuntMobDatabase.IsHuntMob(b.NameId, P.Config.IncludeBRank)) huntAlive++;
             }
+            var territory = Svc.ClientState.TerritoryType;
+            var line = GetBestKnownInstanceId();
             Dbg.Log($"击杀扫描汇总: 参与中存活 {aliveEngaged} 只 / 待计数尸体 {deadPending} 具 / 视野内狩猎怪 {huntAlive} 只"
-                + $" | 已计数 {killCount}/{P.Config.KillsPerInstance} | 待切换={(pendingSwitchInstance == 0 ? "无" : pendingSwitchInstance + " 号区")}"
+                + $" | 本桶击杀 {GetBucketCount(territory, line)}/{P.Config.KillsPerInstance}（地图 {territory} {line}号区）"
                 + $" | 原生副本区={GetNativeInstanceId()} | Lifestream区号={cachedCurrentInstance}/共{cachedInstanceCount}区"
+                + $" | 切区中={P.SwitchInProgress}（目标 {switchTargetLine}）"
                 + $" | 当前目标={(Svc.Targets.Target?.Name.TextValue ?? "无")} | HuntState={HuntController.CurrentState}");
         }
 
@@ -473,12 +471,8 @@ internal static unsafe class InstanceController
 
     /// <summary>
     /// 一只玩家参与的怪物被击杀后调用。
-    /// 去重集合分为两个：
-    ///  - countedMobIds：已真正计数（任何后续调用直接跳过）；
-    ///  - skippedMobIds：已评估为"非狩猎怪、不计数"（仅拦普通调用，
-    ///    不阻塞 forceCount 补计——插件主动选中的怪以 forceCount 为准）。
-    /// 通过 nameId 判定是否为狩猎怪（非狩猎怪不计入副本区切换计数）。
-    /// forceCount=true 时跳过狩猎怪判定（插件主动选中的目标即使数据库未收录也计数）。
+    /// 计入当前「地图 + 副本区」桶。击杀满后不再原地清零——等车头下一坐标：
+    /// 坐标仍在本图 → 传送水晶后 /pdr insc 下一区；坐标在别的地图 → 正常传送，到达后 /pdr insc 1。
     /// </summary>
     public static void OnMobKilled(ulong mobId = 0, uint nameId = 0, bool forceCount = false)
     {
@@ -504,69 +498,45 @@ internal static unsafe class InstanceController
         }
 
         if (mobId != 0) countedMobIds.Add(mobId);
-        killCount++;
+
+        var territory = Svc.ClientState.TerritoryType;
+        var line = GetBestKnownInstanceId();
+        var key = (territory, line);
+        var count = GetBucketCount(territory, line) + 1;
+        killCounts[key] = count;
+
         // 击杀计数是低频且最关键的事件：无条件写 Information 级日志（不受 Dalamud 日志级别影响）
-        // 日志带上地图与区号：排查"击杀满却没切区"时能直接看出当时在哪张地图的第几线
-        PluginLog.Information($"[AutoHunt] 副本区击杀计数: {killCount}/{P.Config.KillsPerInstance}"
-            + $" (地图 {Svc.ClientState.TerritoryType} {GetBestKnownInstanceId()}号区, NameId={nameId}, forceCount={forceCount})");
+        var areaText = line > 0 ? $"{line}号区" : "区号未知";
+        PluginLog.Information($"[AutoHunt] 击杀计数: {count}/{P.Config.KillsPerInstance}"
+            + $" (地图 {territory} {areaText}, NameId={nameId}, forceCount={forceCount})");
 
         if (!P.Config.AutoInstance) return;
-        if (killCount < P.Config.KillsPerInstance) return;
-        if (pendingSwitchInstance != 0)
-        {
-            PluginLog.Information($"[AutoHunt] 击杀已满但已有待切换计划（{pendingSwitchInstance} 号区），本次不重复设置");
-            return; // 已在等待切换
-        }
+        if (count < P.Config.KillsPerInstance) return;
 
-        // 当前区号：原生 InstanceId 优先，读不到（分线数据未加载，实测会间歇性发生）时
-        // 用该地图最近一次已知区号兜底（含我方切换目标、车头切线指令）
-        var current = GetBestKnownInstanceId();
-        if (current == 0)
-        {
-            // 原生读不到副本区号：要么当前地图确实不可切区，要么分线选择数据尚未加载。
-            // 绝不能静默返回——否则 killCount 会停在满值、再无任何提示与后续机会。
-            PluginLog.Warning($"[AutoHunt] 击杀已满但无法确定当前区号（原生 InstanceId=0 且无历史记录，地图 {Svc.ClientState.TerritoryType}），无法安排切区；"
-                + "如该地图有分线，等车头切线指令或手动切一次线即可让插件记住");
-            if (P.Config.Debug) Dbg.Warn("原生 InstanceId=0 且无该地图历史区号：本次不切区");
-            return;
-        }
+        // 只在恰好攒满那一刻提示一次（计数继续累积时不重复刷屏）
+        if (count > P.Config.KillsPerInstance) return;
 
-        killCount = 0;
-        // Lifestream 学习到的该地图副本区总数（未学习过 / 分线数据未加载时为 0 或 1，不可靠）
-        var count = S.LifestreamIPC.GetInstanceCount();
-        // 已知最大区号 = Lifestream 总数 与 当前区号 取大。作用有二：
-        //  a) count 不可靠（读到 0/1）时，仅凭"当前已在 2 号区"就能判定应当回绕，
-        //     绝不会算出 3 号区这种不存在的目标（那会让 NoteKnownLine 记下假区号并污染后续判断）；
-        //  b) count 可信时行为与旧版完全一致（current >= count → 回绕到 1）。
-        var knownMax = Math.Max(count, current);
-        bool wrap = knownMax > 1 && current >= knownMax;
-        var next = wrap ? 1 : current + 1;
-        pendingSwitchInstance = next;
-        // 仅当确认处于最后一个区（回绕）时才等待车头坐标；其余情况击杀满后立即切换
-        pendingSwitchImmediateOk = !wrap;
-        pendingSwitchSetAt = DateTime.Now;
-
-        PluginLog.Information($"[AutoHunt] 击杀已满：当前 {current} 号区（Lifestream 已知共 {count} 区，判定用上限 {knownMax}）→ 计划切到 {next} 号区，"
-            + (pendingSwitchImmediateOk ? "立即切换" : "等待车头下一地图坐标"));
-
-        if (pendingSwitchImmediateOk)
-            Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，即将切换到 {next} 号副本区…");
-        else
-            Notify.Info($"已击杀 {P.Config.KillsPerInstance} 只狩猎怪，等待车头前往下一地图后切换到 {next} 号副本区…");
+        Notify.Info($"本区击杀已满（{count}/{P.Config.KillsPerInstance}），等待车头下一坐标后切换副本区…");
+        PluginLog.Information("[AutoHunt] 本区击杀已满：车头下一坐标仍在本图则传送水晶后 /pdr insc 下一区；坐标在其他地图则正常传送（到达后 /pdr insc 1）");
     }
 
-    /// <summary>重置副本区记录（/ah reset）。</summary>
+    /// <summary>暂停恢复补偿：把暂停时长加到切区等待的计时起点上。</summary>
+    public static void CompensatePause(long pauseMs)
+    {
+        if (switchStartedAt != DateTime.MinValue) switchStartedAt += TimeSpan.FromMilliseconds(pauseMs);
+    }
+
+    /// <summary>重置副本区记录（关闭总开关 / /ah reset）：清零所有击杀数与切区状态。
+    /// 不清 lineCapableTerritories / nonInstancedTerritories——"哪些地图有分线"是游戏世界的事实。</summary>
     public static void Reset()
     {
-        ensuredTerritories.Clear();
-        killCount = 0;
-        pendingEnsureInstanceOne = false;
-        pendingSwitchInstance = 0;
-        pendingSwitchImmediateOk = false;
-        pendingSwitchSetAt = DateTime.MinValue;
-        announcedLineByTerritory.Clear();
+        killCounts.Clear();
+        lastInstanceId = 0;
+        switchTargetLine = 0;
+        switchStartedAt = DateTime.MinValue;
+        switchSawBetweenAreas = false;
+        drSaidNoInstance = false;
         lastKnownLineByTerritory.Clear();
-        // 注意：不清 lineCapableTerritories——"哪些地图有分线"是游戏世界的事实，与本次流程无关
         engagedMobIds.Clear();
         countedMobIds.Clear();
         skippedMobIds.Clear();
