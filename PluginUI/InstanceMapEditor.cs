@@ -25,26 +25,33 @@ public partial class MainWindow
     {
         if (editWorldTree != null) return editWorldTree;
 
-        // 国服世界直接按「服务器中文名单」匹配：服务器名稳定已知（InstanceMapDefaults.DcServers），
-        // 与客户端 World 表里不可靠的字段（大区名/Region/IsPublic）完全无关。
-        // 实测 CN 客户端的 World 表大区字段与国际服对不上、国服行还会被 IsPublic 过滤漏掉。
-        var tree = InstanceMapDefaults.DcServers
-            .Select(d => (d.Dc, Worlds: new List<(uint Id, string Name)>()))
-            .ToList();
-        var nameToDc = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (var i = 0; i < tree.Count; i++)
-            foreach (var s in InstanceMapDefaults.DcServers[i].Servers)
-                nameToDc[s] = i;
+        // 构建规则（实测 CN 客户端 World 表）：
+        //  · 真实国服世界行的 DataCenter 字段能正确解析出「陆行鸟/莫古力/猫小胖/豆豆柴」，可用来分组；
+        //  · 同一服务器存在**两套同名行**（旧行大区为 Unknown，新行才是当前在用的），必须去重；
+        //  · 还有大量占位世界行（陆行鸟s-bella / 鲶鱼精 / 与大区同名的行），名称含 ASCII 或等于大区名，需排除。
+        var dcNames = InstanceMapDefaults.DcServers.Select(d => d.Dc).ToArray();
+        var blockNames = new HashSet<string>(dcNames, StringComparer.Ordinal) { "鲶鱼精" };
 
-        var matched = 0;
+        // 大区 → (服务器名 → 世界行)，同名取 RowId 最大的（较新的一行）
+        var groups = new Dictionary<string, Dictionary<string, (uint Id, string Name)>>(StringComparer.Ordinal);
+        var dropped = 0;
         try
         {
             foreach (var w in Svc.Data.GetExcelSheet<World>())
             {
                 var name = w.Name.ToString().Trim();
-                if (name.IsNullOrEmpty() || !nameToDc.TryGetValue(name, out var di)) continue;
-                tree[di].Worlds.Add((w.RowId, name));
-                matched++;
+                if (name.IsNullOrEmpty()) continue;
+                if (name.Any(c => c < 0x4E00 || c > 0x9FFF)) { dropped++; continue; } // 含 ASCII = 占位行
+                if (blockNames.Contains(name)) { dropped++; continue; }
+
+                string dc = null;
+                try { dc = w.DataCenter.ValueNullable?.Name.ToString(); } catch { }
+                if (dc.IsNullOrEmpty() || Array.IndexOf(dcNames, dc) < 0) { dropped++; continue; }
+
+                if (!groups.TryGetValue(dc, out var map))
+                    groups[dc] = map = new Dictionary<string, (uint, string)>(StringComparer.Ordinal);
+                if (!map.TryGetValue(name, out var old) || w.RowId > old.Id)
+                    map[name] = (w.RowId, name);
             }
         }
         catch (Exception e)
@@ -52,51 +59,57 @@ public partial class MainWindow
             PluginLog.Warning($"[AutoHunt] 读取服务器列表失败: {e.Message}");
         }
 
-        foreach (var t in tree)
-            t.Worlds.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
-        var result = tree.Where(t => t.Worlds.Count > 0).ToList();
-
-        PluginLog.Information("[AutoHunt] 编辑副本地图识别：匹配到国服服务器 " + matched + " 个"
-            + (result.Count > 0 ? "：" + string.Join("，", result.Select(t => $"{t.Dc} {t.Worlds.Count} 服")) : ""));
-
-        if (result.Count > 0)
+        // 组装：大区按固定顺序；服务器按腾讯文档名单顺序排列，名单里没有的（如新服）排最后
+        var result = new List<(string Dc, List<(uint Id, string Name)> Worlds)>();
+        foreach (var (dc, docServers) in InstanceMapDefaults.DcServers)
         {
-            editWorldTree = result;
-            return result;
+            if (!groups.TryGetValue(dc, out var map) || map.Count == 0) continue;
+            var worlds = new List<(uint Id, string Name)>();
+            foreach (var s in docServers)
+                if (map.Remove(s, out var row)) worlds.Add(row);
+            worlds.AddRange(map.Values.OrderBy(r => r.Name, StringComparer.Ordinal));
+            result.Add((dc, worlds));
+
+            var missing = docServers.Where(s => !worlds.Any(w => w.Name == s)).ToArray();
+            if (missing.Length > 0)
+                PluginLog.Warning($"[AutoHunt] 编辑副本地图识别：{dc} 名单中的服务器未在游戏数据中找到："
+                    + string.Join("、", missing));
         }
 
-        // 兜底：名单一个都没匹配上（客户端数据异常）→ 回退为列出表内全部大区，弹窗保持可用，
-        // 并把实际情况写进日志便于排查
-        PluginLog.Warning("[AutoHunt] 国服服务器名单匹配为空，回退为列出全部大区");
-        var fallback = new List<(string Dc, List<(uint Id, string Name)> Worlds)>();
-        try
+        // 兜底：一个都没解析出来（客户端数据异常）→ 回退为列出表内全部大区，弹窗保持可用
+        if (result.Count == 0)
         {
-            var seen = new SortedSet<string>();
-            var notPublic = 0;
-            foreach (var w in Svc.Data.GetExcelSheet<World>())
+            PluginLog.Warning("[AutoHunt] 国服大区解析为空，回退为列出全部大区");
+            var fallback = new List<(string Dc, List<(uint Id, string Name)> Worlds)>();
+            try
             {
-                var name = w.Name.ToString().Trim();
-                if (name.IsNullOrEmpty()) continue;
-                if (!w.IsPublic) { notPublic++; continue; }
-                var dc = w.DataCenter.ValueNullable?.Name.ToString();
-                if (dc.IsNullOrEmpty()) continue;
-                seen.Add($"{dc}(Region={w.Region})");
-                var idx = fallback.FindIndex(d => d.Dc == dc);
-                if (idx < 0) { fallback.Add((dc, new List<(uint, string)>())); idx = fallback.Count - 1; }
-                fallback[idx].Worlds.Add((w.RowId, name));
+                foreach (var w in Svc.Data.GetExcelSheet<World>())
+                {
+                    var name = w.Name.ToString().Trim();
+                    if (name.IsNullOrEmpty()) continue;
+                    var dc = w.DataCenter.ValueNullable?.Name.ToString();
+                    if (dc.IsNullOrEmpty()) continue;
+                    var idx = fallback.FindIndex(d => d.Dc == dc);
+                    if (idx < 0) { fallback.Add((dc, new List<(uint, string)>())); idx = fallback.Count - 1; }
+                    fallback[idx].Worlds.Add((w.RowId, name));
+                }
             }
-            if (seen.Count > 0)
-                PluginLog.Warning("[AutoHunt] 表内大区: " + string.Join(", ", seen)
-                    + $"；非公开世界行 {notPublic} 个");
+            catch (Exception e)
+            {
+                PluginLog.Warning($"[AutoHunt] 读取大区/服务器列表失败: {e.Message}");
+            }
+            foreach (var (_, worlds) in fallback)
+                worlds.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+            if (fallback.Count > 0) editWorldTree = fallback; // 数据未就绪时不留空缓存，下次重试
+            return fallback;
         }
-        catch (Exception e)
-        {
-            PluginLog.Warning($"[AutoHunt] 读取大区/服务器列表失败: {e.Message}");
-        }
-        foreach (var (_, worlds) in fallback)
-            worlds.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
-        if (fallback.Count > 0) editWorldTree = fallback; // 数据未就绪时不留空缓存，下次重试
-        return fallback;
+
+        PluginLog.Information("[AutoHunt] 编辑副本地图识别："
+            + string.Join("，", result.Select(t => $"{t.Dc} {t.Worlds.Count} 服"))
+            + $"（忽略占位/旧世界行 {dropped} 条）");
+
+        editWorldTree = result;
+        return result;
     }
 
     private void ResetEditorSelection()
