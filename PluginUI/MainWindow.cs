@@ -10,7 +10,7 @@ namespace AutoHunt.PluginUI;
 /// 无边框深色玻璃窗 + 居中标题栏 + 左侧图标导航（白色描边胶囊高亮）+ 行式卡片 + 底部状态栏。
 /// 图标使用 Dalamud 内置 FontAwesome（IconFontFixedWidthHandle）。
 /// </summary>
-public class MainWindow : ConfigWindow
+public partial class MainWindow : ConfigWindow
 {
     // ===== 页面 =====
     private enum Page { Home, Hunt, Recruit, Cross, Advanced }
@@ -638,12 +638,25 @@ public class MainWindow : ConfigWindow
             + (InstanceController.KnownWorldCount > 1 ? $"（共 {InstanceController.KnownWorldCount} 个服务器）" : ""));
         ImGui.TextColored(ColSub, "识别按「服务器 + 地图」分别记录：同一张图在不同大区结论可以不同，"
             + "不分线地图进图后不再尝试切区，直接寻路。");
+        ImGui.TextColored(ColSub, "已有分区状态（手动 / 自动识别 / 文档默认）的地图不再自动探测；"
+            + "只有状态为空的地图才会在进图时探测一次。");
         if (GhostButton("##gbResetMaps", IcRefresh, "重置副本地图识别"))
         {
             InstanceController.ResetKnownMaps();
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("清空全部「服务器 × 地图」的识别记录，下次进图会重新探测（每次最多 8 秒）");
+            ImGui.SetTooltip("清空「自动识别」记录（手动编辑与文档默认值保留），下次进图按文档默认值走");
+        ImGui.SameLine(0, 8);
+        if (GhostButton("##gbEditMaps", IcFile, "编辑副本地图识别"))
+        {
+            editMapOpen = true;
+            editMapRequested = true;
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("按「大区 → 服务器 → 地图版本号」手动修改每张地图是否分副本区\n"
+                + "默认值来自腾讯文档《副本地图识别表》，修改立即保存（优先于自动识别）");
+
+        DrawInstanceMapEditor();
 
         // 流程参数
         Sect("流程参数");

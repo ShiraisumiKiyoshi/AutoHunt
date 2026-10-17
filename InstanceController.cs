@@ -34,7 +34,7 @@ internal static unsafe class InstanceController
     private static int cachedInstanceCount = 0;
     private static int cachedCurrentInstance = 0;
 
-    // ===== 副本区号知识（原生读数 + 历史兜底） =====
+    // ===== 副本区号知识（手动编辑 > 自动识别 > 文档默认） =====
     //
     // 全部按「服务器 World RowId + 地图 TerritoryType」两级键记录：
     // 是否分线取决于所在大区/服务器（同一张遗产之地在晨曦王座有分线、在伊修加德没有），
@@ -56,7 +56,25 @@ internal static unsafe class InstanceController
     /// 达到 2 次才把地图记为"不分线"并持久化——避免 DR 模块未启用/一时无响应时误判。</summary>
     private static readonly Dictionary<(uint World, uint Territory), int> noResponseCount = new();
 
+    /// <summary>用户手动指定的分区情况（1=有分区，0=无分区）。来自 Config.ManualInstanceState，
+    /// 优先级最高：自动识别与"重置识别"都不会覆盖它。</summary>
+    private static readonly Dictionary<(uint World, uint Territory), int> manualStates = new();
+
+    /// <summary>腾讯文档《副本地图识别表》提供的默认值（1/0），只读、不落盘。
+    /// 自动识别优先级高于它，因此文档过时也能被现场证据纠正。</summary>
+    private static readonly Dictionary<(uint World, uint Territory), int> defaultStates = new();
+
+    /// <summary>各「服务器 + 地图」已确认到达过的最高副本区号。
+    /// DR 反馈"没有下一个副本区"时记录，避免车头每来一个坐标就重复"传送水晶→切区"空转。</summary>
+    private static readonly Dictionary<(uint World, uint Territory), int> maxLineByTerritory = new();
+
+    /// <summary>地图名 → TerritoryType（文档默认表解析用，懒加载）。</summary>
+    private static Dictionary<string, uint> territoryIdByName;
+
+    private static readonly Dictionary<uint, string> worldNameCache = new();
+
     private static bool knowledgeLoaded = false;
+    private static bool defaultsBuilt = false;
 
     /// <summary>最近一次观测到的服务器 RowId（用于检测跨大区/跨服，切换时清空瞬态缓存）。</summary>
     private static uint lastWorldId = 0;
@@ -64,8 +82,14 @@ internal static unsafe class InstanceController
     // ===== DR 副本区切换状态机 =====
 
     private static int switchTargetLine = 0;
+    /// <summary>发起切区时所在的副本区号（判断"是不是已经是最后一个区"用）。</summary>
+    private static int switchStartLine = 0;
     private static DateTime switchStartedAt = DateTime.MinValue;
     private static bool switchSawBetweenAreas = false;
+    /// <summary>本次切区所在的地图（切区过程中地图变了 = 异常，直接放弃且不做任何识别记录）。</summary>
+    private static uint switchTerritory = 0;
+    /// <summary>观察到读图过渡结束的时刻（用于等原生区号刷新）。</summary>
+    private static DateTime transitionEndedAt = DateTime.MinValue;
     private static bool drSaidNoInstance = false;
     /// <summary>DR 已通过聊天反馈确认切换成功（"当前所在副本区为…"）。</summary>
     private static bool drConfirmedSwitch = false;
@@ -77,6 +101,11 @@ internal static unsafe class InstanceController
     private const double NoResponseSeconds = 8.0;
     /// <summary>同一地图连续无响应多少次才持久化"不分线"标记。</summary>
     private const int NoResponseThreshold = 2;
+    /// <summary>读图过渡结束后等原生区号刷新的时间（秒）；超过后仍读不到才放弃本次判定。</summary>
+    private const double NativeRefreshGraceSeconds = 4.0;
+    /// <summary>原生区号读 0 时的长等待（秒），给分线选择数据加载留足时间。</summary>
+    private const double NativeLoadingGraceSeconds = 20.0;
+
 
     public static int CachedInstanceCount => cachedInstanceCount;
     public static int CachedCurrentInstance => cachedCurrentInstance;
@@ -193,42 +222,222 @@ internal static unsafe class InstanceController
         return GetLastKnownLine(territory);
     }
 
-    /// <summary>该「服务器 + 地图」是否已被确认不存在可切换的副本区。</summary>
+    /// <summary>该「服务器 + 地图」是否已被确认不存在可切换的副本区（含手动指定与文档默认）。</summary>
     public static bool IsKnownNonInstanced(uint territory)
     {
-        EnsureKnowledgeLoaded();
         var k = K(territory);
-        return k.World != 0 && nonInstancedTerritories.Contains(k);
+        return k.World != 0 && GetEffectiveState(k.World, territory) == 0;
     }
 
-    /// <summary>该「服务器 + 地图」是否有分线（读到过区号 / Lifestream 已知多区 / DR 切换成功过）。</summary>
+    /// <summary>该「服务器 + 地图」是否有分线（含手动指定与文档默认）。</summary>
     public static bool IsKnownInstanced(uint territory)
     {
-        EnsureKnowledgeLoaded();
         var k = K(territory);
-        return k.World != 0 && lineCapableTerritories.Contains(k);
+        return k.World != 0 && GetEffectiveState(k.World, territory) == 1;
+    }
+
+    // ===== 分区情况三层状态：手动 &gt; 自动识别 &gt; 文档默认 =====
+
+    /// <summary>手动指定值：1=有分区，0=无分区，-1=未手动设置。</summary>
+    public static int GetManualState(uint world, uint territory)
+    {
+        if (world == 0 || territory == 0) return -1;
+        EnsureKnowledgeLoaded();
+        return manualStates.TryGetValue((world, territory), out var v) ? v : -1;
+    }
+
+    /// <summary>自动识别结果：1=有分线，0=不分线，-1=尚未有证据。</summary>
+    public static int GetAutoState(uint world, uint territory)
+    {
+        if (world == 0 || territory == 0) return -1;
+        EnsureKnowledgeLoaded();
+        if (lineCapableTerritories.Contains((world, territory))) return 1;
+        if (nonInstancedTerritories.Contains((world, territory))) return 0;
+        return -1;
+    }
+
+    /// <summary>腾讯文档默认表的值：1=有分区，0=无分区，-1=表里没有这张图/这个服务器。</summary>
+    public static int GetDefaultState(uint world, uint territory)
+    {
+        if (world == 0 || territory == 0) return -1;
+        EnsureDefaults();
+        return defaultStates.TryGetValue((world, territory), out var v) ? v : -1;
+    }
+
+    /// <summary>最终生效的分区情况：手动 &gt; 自动识别 &gt; 文档默认；都没有返回 -1（未识别）。</summary>
+    public static int GetEffectiveState(uint world, uint territory)
+    {
+        if (world == 0 || territory == 0) return -1;
+        var m = GetManualState(world, territory);
+        if (m >= 0) return m;
+        var a = GetAutoState(world, territory);
+        if (a >= 0) return a;
+        return GetDefaultState(world, territory);
+    }
+
+    /// <summary>生效值的来源文字（供 UI 显示）：手动 / 自动识别 / 文档默认 / 未识别。</summary>
+    public static string GetStateSource(uint world, uint territory)
+    {
+        if (GetManualState(world, territory) >= 0) return "手动";
+        if (GetAutoState(world, territory) >= 0) return "自动识别";
+        if (GetDefaultState(world, territory) >= 0) return "文档默认";
+        return "未识别";
+    }
+
+    private static string SourceText(int state) => state == 1 ? "有分区" : state == 0 ? "无分区" : "未识别";
+
+    /// <summary>手动设置分区情况并立即保存配置。state=1 有分区 / 0 无分区 / null 恢复默认。</summary>
+    public static void SetManualState(uint world, uint territory, int? state)
+    {
+        if (world == 0 || territory == 0) return;
+        EnsureKnowledgeLoaded();
+        try
+        {
+            P.Config.ManualInstanceState ??= new();
+            if (state is 1 or 0)
+            {
+                if (!P.Config.ManualInstanceState.TryGetValue(world, out var dict))
+                    P.Config.ManualInstanceState[world] = dict = new();
+                dict[territory] = state.Value;
+                manualStates[(world, territory)] = state.Value;
+                // 手动结论优先于旧的自动结论：清掉与它冲突的自动记录，避免之后解除手动时又跳回错误值
+                if (state.Value == 1)
+                {
+                    nonInstancedTerritories.Remove((world, territory));
+                    noResponseCount.Remove((world, territory));
+                }
+                else
+                {
+                    lineCapableTerritories.Remove((world, territory));
+                    noResponseCount.Remove((world, territory));
+                }
+            }
+            else
+            {
+                if (P.Config.ManualInstanceState.TryGetValue(world, out var dict))
+                {
+                    dict.Remove(territory);
+                    if (dict.Count == 0) P.Config.ManualInstanceState.Remove(world);
+                }
+                manualStates.Remove((world, territory));
+            }
+            EzConfig.Save();
+            var text = state switch { 1 => "有分区", 0 => "无分区", _ => "恢复默认" };
+            PluginLog.Information($"[AutoHunt] 手动设置副本地图识别：{GetWorldNameById(world)} - 地图 {territory}"
+                + $"（{GetMapName(territory)}）→ {text}");
+        }
+        catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存手动分区设置失败: {e.Message}"); }
+    }
+
+    /// <summary>服务器 World RowId → 服务器名（Excel 未就绪时返回空串）。</summary>
+    public static string GetWorldNameById(uint worldId)
+    {
+        if (worldId == 0) return "";
+        if (worldNameCache.TryGetValue(worldId, out var cached)) return cached;
+        try
+        {
+            var name = Svc.Data.GetExcelSheet<World>().GetRow(worldId).Name.ToString();
+            if (!name.IsNullOrEmpty()) worldNameCache[worldId] = name;
+            return name;
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>地图名 → TerritoryType（0 = 客户端数据里没有这张图）。</summary>
+    public static uint GetTerritoryIdByMapName(string mapName)
+    {
+        if (mapName.IsNullOrEmpty()) return 0;
+        EnsureTerritoryNameMap();
+        return territoryIdByName != null && territoryIdByName.TryGetValue(mapName, out var id) ? id : 0;
+    }
+
+    private static void EnsureTerritoryNameMap()
+    {
+        if (territoryIdByName != null) return;
+        var map = new Dictionary<string, uint>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var t in Svc.Data.GetExcelSheet<TerritoryType>())
+            {
+                var name = t.PlaceName.ValueNullable?.Name.ToString();
+                if (name.IsNullOrEmpty()) continue;
+                if (!map.ContainsKey(name)) map[name] = t.RowId; // 同名取最小 RowId（主地图先于子区域）
+            }
+        }
+        catch (Exception e) { PluginLog.Debug($"[AutoHunt] 读取地图名表失败: {e.Message}"); }
+        territoryIdByName = map;
+    }
+
+    /// <summary>把腾讯文档默认表解析成「服务器 RowId + 地图 TerritoryType」的默认值（懒加载，失败下次重试）。</summary>
+    private static void EnsureDefaults()
+    {
+        if (defaultsBuilt) return;
+        try
+        {
+            EnsureTerritoryNameMap();
+            if (territoryIdByName == null || territoryIdByName.Count == 0) return;
+            var worlds = Svc.Data.GetExcelSheet<World>();
+            if (worlds == null) return;
+
+            var built = 0;
+            foreach (var w in worlds)
+            {
+                var worldName = w.Name.ToString();
+                if (worldName.IsNullOrEmpty()) continue;
+                if (!InstanceMapDefaults.IsCoveredWorld(worldName)) continue;
+                worldNameCache[w.RowId] = worldName;
+                foreach (var version in InstanceMapDefaults.Versions)
+                {
+                    foreach (var mapName in version.Maps)
+                    {
+                        var state = InstanceMapDefaults.GetDefaultState(worldName, mapName);
+                        if (state < 0) continue;
+                        var territory = GetTerritoryIdByMapName(mapName);
+                        if (territory == 0) continue; // 客户端还没更新到这张图
+                        defaultStates[(w.RowId, territory)] = state;
+                        built++;
+                    }
+                }
+            }
+
+            defaultsBuilt = built > 0;
+            if (defaultsBuilt)
+                PluginLog.Information($"[AutoHunt] 副本地图识别默认表已载入：{built} 条「服务器×地图」默认值");
+        }
+        catch (Exception e)
+        {
+            Dbg.Log($" 副本地图默认表载入失败（稍后重试）: {e.Message}");
+        }
+    }
+
+    /// <summary>某服务器上「有分区 / 无分区」的地图数量（按生效值统计，供 UI 展示）。</summary>
+    public static (int LineCapable, int NonInstanced) CountStates(uint world)
+    {
+        if (world == 0) return (0, 0);
+        EnsureKnowledgeLoaded();
+        EnsureDefaults();
+        var territories = lineCapableTerritories.Where(k => k.World == world).Select(k => k.Territory)
+            .Concat(nonInstancedTerritories.Where(k => k.World == world).Select(k => k.Territory))
+            .Concat(manualStates.Where(k => k.Key.World == world).Select(k => k.Key.Territory))
+            .Concat(defaultStates.Where(k => k.Key.World == world).Select(k => k.Key.Territory))
+            .Distinct();
+        var line = 0;
+        var non = 0;
+        foreach (var t in territories)
+        {
+            switch (GetEffectiveState(world, t))
+            {
+                case 1: line++; break;
+                case 0: non++; break;
+            }
+        }
+        return (line, non);
     }
 
     /// <summary>当前服务器上已识别为有分线 / 不分线的地图数量（供 UI 展示）。</summary>
-    public static int KnownInstancedCount
-    {
-        get
-        {
-            EnsureKnowledgeLoaded();
-            var world = GetCurrentWorldId();
-            return world == 0 ? 0 : lineCapableTerritories.Count(k => k.World == world);
-        }
-    }
+    public static int KnownInstancedCount => CountStates(GetCurrentWorldId()).LineCapable;
 
-    public static int KnownNonInstancedCount
-    {
-        get
-        {
-            EnsureKnowledgeLoaded();
-            var world = GetCurrentWorldId();
-            return world == 0 ? 0 : nonInstancedTerritories.Count(k => k.World == world);
-        }
-    }
+    public static int KnownNonInstancedCount => CountStates(GetCurrentWorldId()).NonInstanced;
 
     /// <summary>已有识别记录的服务器数量（供 UI 展示）。</summary>
     public static int KnownWorldCount
@@ -236,8 +445,11 @@ internal static unsafe class InstanceController
         get
         {
             EnsureKnowledgeLoaded();
+            EnsureDefaults();
             return lineCapableTerritories.Select(k => k.World)
                 .Concat(nonInstancedTerritories.Select(k => k.World))
+                .Concat(manualStates.Keys.Select(k => k.World))
+                .Concat(defaultStates.Keys.Select(k => k.World))
                 .Where(w => w != 0).Distinct().Count();
         }
     }
@@ -251,6 +463,7 @@ internal static unsafe class InstanceController
         {
             P.Config.KnownInstancedByWorld ??= new();
             P.Config.KnownNonInstancedByWorld ??= new();
+            P.Config.ManualInstanceState ??= new();
             foreach (var (world, list) in P.Config.KnownInstancedByWorld)
             {
                 if (world == 0 || list == null) continue;
@@ -263,8 +476,17 @@ internal static unsafe class InstanceController
                 foreach (var t in list)
                     if (t != 0 && !lineCapableTerritories.Contains((world, t))) nonInstancedTerritories.Add((world, t));
             }
+            foreach (var (world, dict) in P.Config.ManualInstanceState)
+            {
+                if (world == 0 || dict == null) continue;
+                foreach (var (t, v) in dict)
+                {
+                    if (t == 0 || (v != 0 && v != 1)) continue;
+                    manualStates[(world, t)] = v;
+                }
+            }
             PluginLog.Information($"[AutoHunt] 副本地图识别已载入：{KnownWorldCount} 个服务器，共 "
-                + $"有分线 {lineCapableTerritories.Count} / 不分线 {nonInstancedTerritories.Count} 条"
+                + $"有分线 {lineCapableTerritories.Count} / 不分线 {nonInstancedTerritories.Count} / 手动 {manualStates.Count} 条"
                 + $"（当前服务器 {GetCurrentWorldName()}：有分线 {KnownInstancedCount} 张 / 不分线 {KnownNonInstancedCount} 张）");
         }
         catch (Exception e)
@@ -289,7 +511,8 @@ internal static unsafe class InstanceController
         catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存副本地图识别失败: {e.Message}"); }
     }
 
-    /// <summary>记录「该服务器 + 地图有分线」并持久化；若此前被误记为不分线则一并纠正。</summary>
+    /// <summary>记录「该服务器 + 地图有分线」并持久化；若此前被误记为不分线则一并纠正。
+    /// 用户手动标记为「无分区」的地图不会被自动识别改写。</summary>
     public static void MarkLineCapable(uint territory)
     {
         if (territory == 0) return;
@@ -301,28 +524,36 @@ internal static unsafe class InstanceController
             Dbg.Log($" 服务器未就绪，暂不记录地图 {territory} 的分线能力");
             return;
         }
+        if (GetManualState(k.World, territory) == 0)
+        {
+            Dbg.Log($" {GetWorldNameById(k.World)} - 地图 {territory} 已被手动标记为无分区，忽略自动识别");
+            return;
+        }
         var changed = lineCapableTerritories.Add(k);
         if (nonInstancedTerritories.Remove(k)) changed = true;
         if (noResponseCount.Remove(k)) changed = true;
         if (!changed) return;
         SaveKnowledge();
-        PluginLog.Information($"[AutoHunt] {GetCurrentWorldName()} - 地图 {territory} 确认为「有分线」（已记录，后续进图会切 1 号区）");
+        PluginLog.Information($"[AutoHunt] {GetWorldNameById(k.World)} - 地图 {territory} 确认为「有分线」（已记录）");
     }
 
-    /// <summary>记录「该服务器 + 地图不分线」并持久化（有分线证据的地图不会被打标）。</summary>
+    /// <summary>记录「该服务器 + 地图不分线」并持久化（有分线证据 / 手动指定的地图不会被打标）。</summary>
     public static void MarkNonInstanced(uint territory)
     {
         if (territory == 0) return;
         EnsureKnowledgeLoaded();
         var k = K(territory);
         if (k.World == 0) return;
+        if (GetManualState(k.World, territory) >= 0) return; // 用户已手动指定，自动识别不再插手
         if (lineCapableTerritories.Contains(k)) return;
+        if (GetDefaultState(k.World, territory) == 1) return; // 文档默认有分区：不因一次无响应就改判
         if (!nonInstancedTerritories.Add(k)) return;
         SaveKnowledge();
-        PluginLog.Information($"[AutoHunt] {GetCurrentWorldName()} - 地图 {territory} 确认为「不分线」（已记录，后续进图不再尝试切区）");
+        PluginLog.Information($"[AutoHunt] {GetWorldNameById(k.World)} - 地图 {territory} 确认为「不分线」（已记录）");
     }
 
-    /// <summary>清空全部服务器×地图的识别记录（UI「重置副本地图识别」按钮）。</summary>
+    /// <summary>清空全部服务器×地图的「自动识别」记录（UI「重置副本地图识别」按钮）。
+    /// 手动编辑的结果（Config.ManualInstanceState）与腾讯文档默认表不受影响——重置后回到文档默认值。</summary>
     public static void ResetKnownMaps()
     {
         knowledgeLoaded = true;
@@ -330,6 +561,7 @@ internal static unsafe class InstanceController
         nonInstancedTerritories.Clear();
         noResponseCount.Clear();
         lastKnownLineByTerritory.Clear();
+        maxLineByTerritory.Clear();
         try
         {
             P.Config.KnownInstancedByWorld.Clear();
@@ -337,9 +569,10 @@ internal static unsafe class InstanceController
             EzConfig.Save();
         }
         catch { }
-        PluginLog.Information("[AutoHunt] 已重置副本地图识别记录（全部服务器）");
-        Notify.Info("已重置副本地图识别记录。");
+        PluginLog.Information("[AutoHunt] 已重置副本地图识别记录（自动识别，全部服务器）");
+        Notify.Info("已重置副本地图识别记录（手动编辑与腾讯文档默认值保留）。");
     }
+
 
     /// <summary>地图名称（TerritoryType → PlaceName，读取失败返回空串）。</summary>
     public static string GetMapName(uint territory)
@@ -409,15 +642,18 @@ internal static unsafe class InstanceController
             return;
         }
         switchTargetLine = targetLine;
+        switchStartLine = GetBestKnownInstanceId();
+        switchTerritory = here;
         switchStartedAt = DateTime.Now;
         switchSawBetweenAreas = false;
+        transitionEndedAt = DateTime.MinValue;
         drSaidNoInstance = false;
         drConfirmedSwitch = false;
         P.SwitchInProgress = true;
         P.SwitchStartTime = DateTime.Now;
         Chat.ExecuteCommand($"/pdr insc {targetLine}");
         // 未知地图：这是一次"探测"，DR 若分线正常会在一两秒内反馈「当前所在副本区为…」
-        if (!IsKnownInstanced(here))
+        if (GetEffectiveState(GetCurrentWorldId(), here) < 0)
             Notify.Info($"正在确认当前地图是否分线（约 {NoResponseSeconds:0} 秒）…");
         else
             Notify.Info($"正在切换到 {targetLine} 号副本区（DR 快捷副本区切换）…");
@@ -427,6 +663,12 @@ internal static unsafe class InstanceController
     /// <summary>
     /// 切区等待推进。返回 true = 切换流程结束（成功 / 本图不分线 / 超时），可继续后续流程。
     /// 仅在 P.SwitchInProgress 为 true 时由主循环调用。
+    ///
+    /// 判定原则（v2.4.0.29 起，彻底去掉"过渡即成功"的投毒路径）：
+    /// - 唯一的成功证据 = 原生副本区号变成目标值，或 DR 明确反馈「当前所在副本区为…」；
+    /// - 读图过渡本身<b>不算</b>切区证据（传送水晶 / 上坐骑落地都会触发过渡）；
+    /// - 只有"完全没有任何过渡、没有 DR 反馈、区号也没变"才推断本图不分线，且只在探测 1 号区时如此推断
+    ///   （目标是 2 号及以后时，无响应只代表"已是最后一个副本区"）。
     /// </summary>
     public static bool UpdateSwitchProgress()
     {
@@ -435,78 +677,114 @@ internal static unsafe class InstanceController
         var here = Svc.ClientState.TerritoryType;
         var elapsed = (DateTime.Now - switchStartedAt).TotalSeconds;
 
+        // 切区过程中地图都换了：只可能是异常（切区不会跨地图），直接放弃且不做任何识别记录
+        if (switchTerritory != 0 && here != switchTerritory)
+        {
+            PluginLog.Warning($"[AutoHunt] 切区过程中地图变化 {switchTerritory} → {here}，放弃本次切区判定（不记录分区信息）");
+            return true;
+        }
+
+        var key = K(here);
+        var native = GetNativeInstanceId();
+
         // 读图过渡中（DR 切区会传送/换区）：记住见过过渡，等它结束
         if (Svc.Condition[ConditionFlag.BetweenAreas] || Svc.Condition[ConditionFlag.BetweenAreas51])
         {
             switchSawBetweenAreas = true;
+            transitionEndedAt = DateTime.MinValue;
             return false;
         }
+        if (switchSawBetweenAreas && transitionEndedAt == DateTime.MinValue)
+        {
+            transitionEndedAt = DateTime.Now;
+            PluginLog.Information($"[AutoHunt] 切区等待：读图过渡结束，等待原生副本区号刷新（当前读数 {native}，目标 {switchTargetLine}）");
+        }
 
-        // DR 反馈本图不存在可切换的副本区 → 本图不分线，直接继续
+        // DR 反馈本图不存在可切换的副本区
         if (drSaidNoInstance)
         {
-            MarkNonInstanced(here);
-            PluginLog.Information($"[AutoHunt] DR 反馈地图 {here} 不存在可切换的副本区，继续流程");
+            if (switchTargetLine <= 1)
+            {
+                MarkNonInstanced(here);
+                PluginLog.Information($"[AutoHunt] DR 反馈地图 {here} 不存在可切换的副本区，判定不分线并继续流程");
+            }
+            else if (key.World != 0)
+            {
+                // 目标 > 1：说明这张图有分线，只是已经到最后一个区了
+                maxLineByTerritory[key] = Math.Max(switchTargetLine - 1, switchStartLine);
+                PluginLog.Information($"[AutoHunt] DR 反馈地图 {here} 没有 {switchTargetLine} 号区（已是最后一个副本区），继续流程");
+            }
             return true;
         }
 
         // DR 通过聊天确认切换成功（"当前所在副本区为…"）——最可靠的信号，实测约 2 秒内到达。
-        // 确认后等区号刷新/过渡结束即可继续流程。
         if (drConfirmedSwitch)
         {
             MarkLineCapable(here);
             NoteKnownLine(switchTargetLine, here);
-            if (GetNativeInstanceId() == switchTargetLine)
+            if (key.World != 0) maxLineByTerritory[key] = Math.Max(maxLineByTerritory.GetValueOrDefault(key), switchTargetLine);
+            if (native == switchTargetLine || elapsed > 20)
             {
-                PluginLog.Information($"[AutoHunt] 副本区切换完成（DR 已确认 + 原生区号 {switchTargetLine}，耗时 {elapsed:0}s）");
-                return true;
-            }
-            if (elapsed > 20)
-            {
-                PluginLog.Information($"[AutoHunt] 副本区切换：DR 已确认切换，原生区号暂未刷新，直接继续流程（耗时 {elapsed:0}s）");
+                PluginLog.Information($"[AutoHunt] 副本区切换完成（DR 已确认，原生区号 {native}，耗时 {elapsed:0}s）");
                 return true;
             }
             return false;
         }
 
-        // 已发生读图过渡且过渡结束 → 切区动作已完成
-        if (switchSawBetweenAreas && elapsed > 3)
+        // 原生区号已等于目标：唯一的"真切换"证据（已在目标区时也算完成，无需动作）
+        if (native == switchTargetLine)
         {
             MarkLineCapable(here);
             NoteKnownLine(switchTargetLine, here);
-            PluginLog.Information($"[AutoHunt] 副本区切换完成（观察到读图过渡，目标 {switchTargetLine} 号区，耗时 {elapsed:0}s）");
+            if (key.World != 0) maxLineByTerritory[key] = Math.Max(maxLineByTerritory.GetValueOrDefault(key), switchTargetLine);
+            PluginLog.Information($"[AutoHunt] 副本区切换完成（原生区号 {switchTargetLine}，耗时 {elapsed:0}s）");
             return true;
         }
 
-        // 未触发读图但原生区号已等于目标（典型：已在目标区，DR 无需动作）
-        if (elapsed > 3 && GetNativeInstanceId() == switchTargetLine)
+        // 观察到过渡但区号没变成目标：等它刷新。超时后放弃本次判定，**不写任何识别记录**
+        // （过渡可能只是传送水晶/落地，不能当作"有分线"的证据；也不能当作"不分线"的证据）。
+        if (switchSawBetweenAreas && transitionEndedAt != DateTime.MinValue)
         {
-            MarkLineCapable(here);
-            NoteKnownLine(switchTargetLine, here);
-            PluginLog.Information($"[AutoHunt] 副本区切换完成（已在 {switchTargetLine} 号区，无需切换，耗时 {elapsed:0}s）");
+            var sinceEnd = (DateTime.Now - transitionEndedAt).TotalSeconds;
+            if (sinceEnd < NativeRefreshGraceSeconds) return false;
+            if (native == 0 && sinceEnd < NativeLoadingGraceSeconds) return false; // 分线数据还在加载
+            PluginLog.Warning($"[AutoHunt] 副本区切换：观察到读图过渡但区号仍为 {native}（目标 {switchTargetLine}），"
+                + "判定为传送/落地过渡而非切区，本次不记录分区信息，继续流程");
             return true;
         }
 
-        var hasEvidence = IsKnownInstanced(here)
-            || S.LifestreamIPC.GetInstanceCount() > 1
-            || GetNativeInstanceId() > 0;
-
-        // 无响应判定：DR 的失败提示是屏幕 toast（聊天频道收不到），只能靠行为判定——
-        // 真正切区必有读图过渡或 DR 聊天反馈；两者都没有 = 本图没有可切换的副本区。
-        if (elapsed > NoResponseSeconds && !hasEvidence)
+        // 完全无过渡 + 无 DR 反馈 + 区号未变
+        if (elapsed > NoResponseSeconds)
         {
-            var key = K(here);
+            // 已有分区状态（手动 / 自动识别 / 文档默认）：不需要自动识别，DR 没反应就照常继续，
+            // 绝不再拿"无响应"去改写已有结论。
+            var known = GetEffectiveState(key.World, here);
+            if (known >= 0)
+            {
+                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 无响应，但地图 {here} 已有分区状态"
+                    + $"（{SourceText(known)}），不再自动识别，继续流程");
+                return true;
+            }
+
+            if (switchTargetLine > 1)
+            {
+                // 目标 > 1 却没有反应：这张图是分线的，只是没有下一个区
+                if (key.World != 0) maxLineByTerritory[key] = Math.Max(switchStartLine, 1);
+                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 无响应：地图 {here} 已是最后一个副本区（{switchStartLine}），继续流程");
+                return true;
+            }
+
             var n = noResponseCount.TryGetValue(key, out var c) ? c + 1 : 1;
             noResponseCount[key] = n;
             if (n >= NoResponseThreshold)
             {
                 MarkNonInstanced(here);
-                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 无响应（第 {n} 次），地图 {here} 判定为不分线并已记录，继续流程");
+                PluginLog.Information($"[AutoHunt] /pdr insc 1 无响应（第 {n} 次），地图 {here} 判定为不分线并已记录，继续流程");
                 Notify.Info("当前地图不分副本区，直接前往车头坐标");
             }
             else
             {
-                PluginLog.Information($"[AutoHunt] /pdr insc {switchTargetLine} 无响应（第 {n}/{NoResponseThreshold} 次），地图 {here} 暂按不分线处理（再确认一次后永久记录）");
+                PluginLog.Information($"[AutoHunt] /pdr insc 1 无响应（第 {n}/{NoResponseThreshold} 次），地图 {here} 暂按不分线处理（再确认一次后永久记录）");
                 Notify.Info("当前地图未检测到可切换的副本区，直接前往车头坐标");
             }
             return true;
@@ -527,6 +805,8 @@ internal static unsafe class InstanceController
     /// 监听 DR（Daily Routines）对 /pdr insc 的聊天反馈。
     /// 由 ChatMessageHandler 对每条聊天消息调用（不受车头过滤影响）。
     /// 实测 DR 成功切区时会输出「当前所在副本区为“遗产之地”。」——这是最可靠的切换成功信号。
+    /// 注意：只有"我们自己发起的切区正在进行中"才采信，否则无法区分是别的插件/玩家触发
+    /// 还是 DR 进图自动播报，会把任意地图误标成"有分线"（v2.4.0.28 前的投毒路径之一）。
     /// </summary>
     public static void OnChatFeedback(IHandleableChatMessage cm)
     {
@@ -539,20 +819,22 @@ internal static unsafe class InstanceController
             PluginLog.Information($"[AutoHunt] DR/切区相关反馈: {text}");
         Dbg.Log($" DR/切区相关反馈: {text}");
 
-        // 成功反馈（与是否处于切换流程无关：DR 也可能响应其他来源的 /pdr insc）
+        if (!P.SwitchInProgress) return; // 不在切区流程中：只记录，不改识别
+        var here = Svc.ClientState.TerritoryType;
+        if (switchTerritory != 0 && here != switchTerritory) return;
+
+        // 成功反馈（当前所在副本区为…）
         if (text.Contains("所在副本区") || text.Contains("当前副本区"))
         {
-            MarkLineCapable(Svc.ClientState.TerritoryType);
-            if (P.SwitchInProgress) drConfirmedSwitch = true;
+            if (!drConfirmedSwitch)
+                PluginLog.Information($"[AutoHunt] DR 反馈已确认副本区（目标 {switchTargetLine}）: {text}");
+            drConfirmedSwitch = true;
             return;
         }
-
-        if (!P.SwitchInProgress) return;
 
         // 不存在可切换的副本区（本图不分线）。措辞按 DR 实际输出宽匹配。
         if (text.Contains("不存在") || text.Contains("不支持") || text.Contains("没有可") || text.Contains("无法切换"))
         {
-            MarkNonInstanced(Svc.ClientState.TerritoryType);
             drSaidNoInstance = true;
         }
     }
@@ -583,6 +865,13 @@ internal static unsafe class InstanceController
         if (knownCount > 1 && cur >= knownCount)
         {
             Dbg.Log($" 已在最后一个副本区（{cur}/{knownCount}），跳过切区，直接前往车头坐标");
+            return false;
+        }
+
+        // DR 已明确反馈过"没有下一个副本区"：同样不再重试，避免每个车头坐标都传送水晶空转
+        if (maxLineByTerritory.TryGetValue(K(tp.TerritoryId), out var maxLine) && maxLine > 1 && cur >= maxLine)
+        {
+            Dbg.Log($" 已确认本图最高副本区为 {maxLine}（当前 {cur}），跳过切区，直接前往车头坐标");
             return false;
         }
 
@@ -823,11 +1112,14 @@ internal static unsafe class InstanceController
         killCounts.Clear();
         lastInstanceId = 0;
         switchTargetLine = 0;
+        switchTerritory = 0;
         switchStartedAt = DateTime.MinValue;
         switchSawBetweenAreas = false;
+        transitionEndedAt = DateTime.MinValue;
         drSaidNoInstance = false;
         drConfirmedSwitch = false;
         lastKnownLineByTerritory.Clear();
+        maxLineByTerritory.Clear();
         engagedMobIds.Clear();
         countedMobIds.Clear();
         skippedMobIds.Clear();

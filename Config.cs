@@ -49,6 +49,12 @@ public class Config : IEzConfig
     /// 这些地图在该服务器上不再尝试切区，直接寻路。</summary>
     public Dictionary<uint, List<uint>> KnownNonInstancedByWorld = new();
 
+    /// <summary>手动编辑的副本地图分区情况（「编辑副本地图识别」弹窗）：
+    /// 服务器 World RowId → (地图 TerritoryType → 1=有分区 / 0=无分区)。
+    /// 手动值优先级最高：有记录时自动识别不再改写，也不被「重置副本地图识别」清掉。
+    /// 未出现在本字典里的地图走自动识别 / 腾讯文档默认表 / 未识别。</summary>
+    public Dictionary<uint, Dictionary<uint, int>> ManualInstanceState = new();
+
     /// <summary>上坐骑（vnavmesh 寻路前）</summary>
     public bool UseMount = true;
 
