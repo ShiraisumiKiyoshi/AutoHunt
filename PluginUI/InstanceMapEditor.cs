@@ -25,8 +25,8 @@ public partial class MainWindow
     {
         if (editWorldTree != null) return editWorldTree;
 
-        // 只收国服四大区：客户端的 World 表含全部国际服服务器（如 Aether/Adamantoise），
-        // 副本区识别只针对国服，其余大区一律不列出。
+        // 只收国服：优先用 World 表的 Region 字段（3 = 中国区，与客户端语言无关），
+        // 再按大区名兜底；国际服（Aether/Adamantoise 等）一律不列出。
         string[] cnDcs = { "陆行鸟", "莫古力", "猫小胖", "豆豆柴" };
 
         var tree = new List<(string Dc, List<(uint Id, string Name)> Worlds)>();
@@ -38,7 +38,8 @@ public partial class MainWindow
                 if (name.IsNullOrEmpty()) continue;
                 if (!w.IsPublic) continue; // 跳过测试/开发服
                 var dc = w.DataCenter.ValueNullable?.Name.ToString();
-                if (dc.IsNullOrEmpty() || Array.IndexOf(cnDcs, dc) < 0) continue;
+                if (dc.IsNullOrEmpty()) continue;
+                if (w.Region != 3 && Array.IndexOf(cnDcs, dc) < 0) continue;
 
                 var idx = tree.FindIndex(d => d.Dc == dc);
                 if (idx < 0)
@@ -54,10 +55,44 @@ public partial class MainWindow
             PluginLog.Warning($"[AutoHunt] 读取大区/服务器列表失败: {e.Message}");
         }
 
+        if (tree.Count == 0)
+        {
+            // 兜底：Region/名字都没匹配上时退回"不过滤"，弹窗保持可用，同时把表内实际
+            // 出现的大区（含 Region 值）写进日志，便于排查过滤条件
+            PluginLog.Warning("[AutoHunt] 国服大区过滤结果为空，回退为列出全部大区");
+            try
+            {
+                var seen = new SortedSet<string>();
+                foreach (var w in Svc.Data.GetExcelSheet<World>())
+                {
+                    if (!w.IsPublic) continue;
+                    var dc = w.DataCenter.ValueNullable?.Name.ToString();
+                    if (dc.IsNullOrEmpty()) continue;
+                    seen.Add($"{dc}(Region={w.Region})");
+                    var idx = tree.FindIndex(d => d.Dc == dc);
+                    if (idx < 0) { tree.Add((dc, new List<(uint, string)>())); idx = tree.Count - 1; }
+                    tree[idx].Worlds.Add((w.RowId, w.Name.ToString()));
+                }
+                if (seen.Count > 0)
+                    PluginLog.Warning("[AutoHunt] 表内大区: " + string.Join(", ", seen));
+            }
+            catch { }
+        }
+
         // 按国服大区固定顺序排列，服务器按名称排序
-        tree.Sort((a, b) => Array.IndexOf(cnDcs, a.Dc).CompareTo(Array.IndexOf(cnDcs, b.Dc)));
+        tree.Sort((a, b) =>
+        {
+            var ai = Array.IndexOf(cnDcs, a.Dc);
+            var bi = Array.IndexOf(cnDcs, b.Dc);
+            if (ai < 0) ai = int.MaxValue;
+            if (bi < 0) bi = int.MaxValue;
+            return ai != bi ? ai.CompareTo(bi) : string.CompareOrdinal(a.Dc, b.Dc);
+        });
         foreach (var (_, worlds) in tree)
             worlds.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+
+        PluginLog.Information($"[AutoHunt] 编辑副本地图识别：读取到 {tree.Count} 个国服大区，"
+            + string.Join("，", tree.Select(t => $"{t.Dc} {t.Worlds.Count} 服")));
 
         if (tree.Count > 0) editWorldTree = tree; // 数据未就绪时不留空缓存，下次重试
         return tree;
@@ -109,7 +144,12 @@ public partial class MainWindow
         {
             ImGui.TextColored(ColAmber, "读不到客户端的大区/服务器数据，请登录角色后重试。");
             ImGui.Dummy(new Vector2(0, 8));
+            ImGui.PushStyleColor(ImGuiCol.Button, ColAccent);
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Rgba(ColAccent, 0.85f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, Rgba(ColAccent, 0.7f));
+            ImGui.PushStyleColor(ImGuiCol.Text, C(10, 18, 26, 255));
             if (ImGui.Button("关闭", new Vector2(100, 0))) editMapOpen = false;
+            ImGui.PopStyleColor(4);
             ImGui.EndPopup();
             return;
         }
