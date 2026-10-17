@@ -35,24 +35,31 @@ internal static unsafe class InstanceController
     private static int cachedCurrentInstance = 0;
 
     // ===== 副本区号知识（原生读数 + 历史兜底） =====
+    //
+    // 全部按「服务器 World RowId + 地图 TerritoryType」两级键记录：
+    // 是否分线取决于所在大区/服务器（同一张遗产之地在晨曦王座有分线、在伊修加德没有），
+    // 只按地图 ID 记会把陆行鸟的结论错误套到其他大区。
 
-    /// <summary>已知存在分线的地图（读到过非 0 区号 / 成功切换过）。
+    /// <summary>已知存在分线的「服务器 + 地图」（读到过非 0 区号 / 成功切换过）。
     /// 原生 InstanceId 是"分线选择数据"的一部分，会间歇性读到 0（数据未加载时），
     /// 不能凭一次 0 就断定该地图没有分线。</summary>
-    private static readonly HashSet<uint> lineCapableTerritories = new();
+    private static readonly HashSet<(uint World, uint Territory)> lineCapableTerritories = new();
 
-    /// <summary>各地图最近一次已知区号（原生读数）。
+    /// <summary>各「服务器 + 地图」最近一次已知区号（原生读数）。
     /// 原生读数偶发为 0 时用它兜底，避免"击杀满却算不出当前区号 → 无法切区"。</summary>
-    private static readonly Dictionary<uint, int> lastKnownLineByTerritory = new();
+    private static readonly Dictionary<(uint World, uint Territory), int> lastKnownLineByTerritory = new();
 
-    /// <summary>DR 已明确反馈「不存在可切换的副本区」的地图（本图不分线，跳过一切切区动作）。</summary>
-    private static readonly HashSet<uint> nonInstancedTerritories = new();
+    /// <summary>已确认「不存在可切换的副本区」的「服务器 + 地图」（跳过一切切区动作）。</summary>
+    private static readonly HashSet<(uint World, uint Territory)> nonInstancedTerritories = new();
 
     /// <summary>发出 /pdr insc 后无任何反应（无 DR 反馈、无读图过渡、区号未变）的累计次数。
     /// 达到 2 次才把地图记为"不分线"并持久化——避免 DR 模块未启用/一时无响应时误判。</summary>
-    private static readonly Dictionary<uint, int> noResponseCount = new();
+    private static readonly Dictionary<(uint World, uint Territory), int> noResponseCount = new();
 
     private static bool knowledgeLoaded = false;
+
+    /// <summary>最近一次观测到的服务器 RowId（用于检测跨大区/跨服，切换时清空瞬态缓存）。</summary>
+    private static uint lastWorldId = 0;
 
     // ===== DR 副本区切换状态机 =====
 
@@ -130,13 +137,47 @@ internal static unsafe class InstanceController
         return ui != null ? (int)ui->PublicInstance.InstanceId : 0;
     }
 
-    /// <summary>该地图最近一次已知区号（0 = 未知）。</summary>
+    /// <summary>当前所在服务器 RowId（0 = 尚未就绪/正在跨服切换）。
+    /// 优先当前世界，其次回退到角色所属世界。</summary>
+    public static uint GetCurrentWorldId()
+    {
+        try
+        {
+            if (!Player.Available) return 0;
+            var cw = Player.Object.CurrentWorld;
+            if (cw.RowId is > 0) return cw.RowId;
+            var hw = Player.Object.HomeWorld;
+            if (hw.RowId is > 0) return hw.RowId;
+        }
+        catch { }
+        return 0;
+    }
+
+    /// <summary>当前服务器名称（读取失败返回空串）。</summary>
+    public static string GetCurrentWorldName()
+    {
+        try
+        {
+            if (!Player.Available) return "";
+            var cw = Player.Object.CurrentWorld;
+            if (cw.RowId is > 0) return cw.Value.Name.ToString();
+            var hw = Player.Object.HomeWorld;
+            if (hw.RowId is > 0) return hw.Value.Name.ToString();
+        }
+        catch { }
+        return "";
+    }
+
+    /// <summary>把地图 ID 组合成「当前服务器 + 地图」的识别键。</summary>
+    private static (uint World, uint Territory) K(uint territory) => (GetCurrentWorldId(), territory);
+
+    /// <summary>该「服务器 + 地图」最近一次已知区号（0 = 未知）。</summary>
     public static int GetLastKnownLine(uint territory)
-        => lastKnownLineByTerritory.TryGetValue(territory, out var v) ? v : 0;
+        => lastKnownLineByTerritory.TryGetValue(K(territory), out var v) ? v : 0;
 
     /// <summary>
     /// 当前区号：原生优先；原生读到 0（分线选择数据未加载，实测会间歇性发生）时，
-    /// 用该地图最近一次已知区号兜底。两条都拿不到才返回 0（真未知）。
+    /// 用「当前服务器 + 该地图」最近一次已知区号兜底。两条都拿不到才返回 0（真未知）。
     /// </summary>
     public static int GetBestKnownInstanceId()
     {
@@ -145,42 +186,86 @@ internal static unsafe class InstanceController
         if (native != 0)
         {
             MarkLineCapable(territory);
-            lastKnownLineByTerritory[territory] = native;
+            var k = K(territory);
+            if (k.World != 0) lastKnownLineByTerritory[k] = native;
             return native;
         }
         return GetLastKnownLine(territory);
     }
 
-    /// <summary>DR 是否已反馈该地图不存在可切换的副本区（不分线）。</summary>
+    /// <summary>该「服务器 + 地图」是否已被确认不存在可切换的副本区。</summary>
     public static bool IsKnownNonInstanced(uint territory)
     {
         EnsureKnowledgeLoaded();
-        return nonInstancedTerritories.Contains(territory);
+        var k = K(territory);
+        return k.World != 0 && nonInstancedTerritories.Contains(k);
     }
 
-    /// <summary>该地图是否有分线（读到过区号 / Lifestream 已知多区 / DR 切换成功过）。</summary>
+    /// <summary>该「服务器 + 地图」是否有分线（读到过区号 / Lifestream 已知多区 / DR 切换成功过）。</summary>
     public static bool IsKnownInstanced(uint territory)
     {
         EnsureKnowledgeLoaded();
-        return lineCapableTerritories.Contains(territory);
+        var k = K(territory);
+        return k.World != 0 && lineCapableTerritories.Contains(k);
     }
 
-    /// <summary>已识别为有分线 / 不分线的地图数量（供 UI 展示）。</summary>
-    public static int KnownInstancedCount { get { EnsureKnowledgeLoaded(); return lineCapableTerritories.Count; } }
-    public static int KnownNonInstancedCount { get { EnsureKnowledgeLoaded(); return nonInstancedTerritories.Count; } }
+    /// <summary>当前服务器上已识别为有分线 / 不分线的地图数量（供 UI 展示）。</summary>
+    public static int KnownInstancedCount
+    {
+        get
+        {
+            EnsureKnowledgeLoaded();
+            var world = GetCurrentWorldId();
+            return world == 0 ? 0 : lineCapableTerritories.Count(k => k.World == world);
+        }
+    }
 
-    /// <summary>把配置中持久化的地图识别记录载入内存（进程内只执行一次）。</summary>
+    public static int KnownNonInstancedCount
+    {
+        get
+        {
+            EnsureKnowledgeLoaded();
+            var world = GetCurrentWorldId();
+            return world == 0 ? 0 : nonInstancedTerritories.Count(k => k.World == world);
+        }
+    }
+
+    /// <summary>已有识别记录的服务器数量（供 UI 展示）。</summary>
+    public static int KnownWorldCount
+    {
+        get
+        {
+            EnsureKnowledgeLoaded();
+            return lineCapableTerritories.Select(k => k.World)
+                .Concat(nonInstancedTerritories.Select(k => k.World))
+                .Where(w => w != 0).Distinct().Count();
+        }
+    }
+
+    /// <summary>把配置中持久化的识别记录载入内存（进程内只执行一次）。</summary>
     private static void EnsureKnowledgeLoaded()
     {
         if (knowledgeLoaded) return;
         knowledgeLoaded = true;
         try
         {
-            foreach (var t in P.Config.KnownInstancedTerritories)
-                if (t != 0) lineCapableTerritories.Add(t);
-            foreach (var t in P.Config.KnownNonInstancedTerritories)
-                if (t != 0 && !lineCapableTerritories.Contains(t)) nonInstancedTerritories.Add(t);
-            PluginLog.Information($"[AutoHunt] 副本地图识别已载入：有分线 {lineCapableTerritories.Count} 张 / 不分线 {nonInstancedTerritories.Count} 张");
+            P.Config.KnownInstancedByWorld ??= new();
+            P.Config.KnownNonInstancedByWorld ??= new();
+            foreach (var (world, list) in P.Config.KnownInstancedByWorld)
+            {
+                if (world == 0 || list == null) continue;
+                foreach (var t in list)
+                    if (t != 0) lineCapableTerritories.Add((world, t));
+            }
+            foreach (var (world, list) in P.Config.KnownNonInstancedByWorld)
+            {
+                if (world == 0 || list == null) continue;
+                foreach (var t in list)
+                    if (t != 0 && !lineCapableTerritories.Contains((world, t))) nonInstancedTerritories.Add((world, t));
+            }
+            PluginLog.Information($"[AutoHunt] 副本地图识别已载入：{KnownWorldCount} 个服务器，共 "
+                + $"有分线 {lineCapableTerritories.Count} / 不分线 {nonInstancedTerritories.Count} 条"
+                + $"（当前服务器 {GetCurrentWorldName()}：有分线 {KnownInstancedCount} 张 / 不分线 {KnownNonInstancedCount} 张）");
         }
         catch (Exception e)
         {
@@ -188,45 +273,56 @@ internal static unsafe class InstanceController
         }
     }
 
-    /// <summary>记录「该地图有分线」并持久化；若此前被误记为不分线则一并纠正。</summary>
+    /// <summary>把内存中的识别集合同步回配置并保存。</summary>
+    private static void SaveKnowledge()
+    {
+        try
+        {
+            P.Config.KnownInstancedByWorld = lineCapableTerritories
+                .GroupBy(k => k.World)
+                .ToDictionary(g => g.Key, g => g.Select(k => k.Territory).Distinct().OrderBy(t => t).ToList());
+            P.Config.KnownNonInstancedByWorld = nonInstancedTerritories
+                .GroupBy(k => k.World)
+                .ToDictionary(g => g.Key, g => g.Select(k => k.Territory).Distinct().OrderBy(t => t).ToList());
+            EzConfig.Save();
+        }
+        catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存副本地图识别失败: {e.Message}"); }
+    }
+
+    /// <summary>记录「该服务器 + 地图有分线」并持久化；若此前被误记为不分线则一并纠正。</summary>
     public static void MarkLineCapable(uint territory)
     {
         if (territory == 0) return;
         EnsureKnowledgeLoaded();
-        var changed = lineCapableTerritories.Add(territory);
-        if (nonInstancedTerritories.Remove(territory)) changed = true;
-        noResponseCount.Remove(territory);
-        if (!changed) return;
-        try
+        var k = K(territory);
+        if (k.World == 0)
         {
-            if (!P.Config.KnownInstancedTerritories.Contains(territory))
-                P.Config.KnownInstancedTerritories.Add(territory);
-            P.Config.KnownNonInstancedTerritories.Remove(territory);
-            EzConfig.Save();
+            // 服务器未就绪（跨大区/读图过渡）：不记录，避免把结论写到错误的世界名下
+            Dbg.Log($" 服务器未就绪，暂不记录地图 {territory} 的分线能力");
+            return;
         }
-        catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存副本地图识别失败: {e.Message}"); }
-        PluginLog.Information($"[AutoHunt] 地图 {territory} 确认为「有分线」（已记录，后续进图会切 1 号区）");
+        var changed = lineCapableTerritories.Add(k);
+        if (nonInstancedTerritories.Remove(k)) changed = true;
+        if (noResponseCount.Remove(k)) changed = true;
+        if (!changed) return;
+        SaveKnowledge();
+        PluginLog.Information($"[AutoHunt] {GetCurrentWorldName()} - 地图 {territory} 确认为「有分线」（已记录，后续进图会切 1 号区）");
     }
 
-    /// <summary>记录「该地图不分线」并持久化（有分线证据的地图不会被打标）。</summary>
+    /// <summary>记录「该服务器 + 地图不分线」并持久化（有分线证据的地图不会被打标）。</summary>
     public static void MarkNonInstanced(uint territory)
     {
         if (territory == 0) return;
         EnsureKnowledgeLoaded();
-        if (lineCapableTerritories.Contains(territory)) return;
-        if (!nonInstancedTerritories.Add(territory)) return;
-        try
-        {
-            if (!P.Config.KnownNonInstancedTerritories.Contains(territory))
-                P.Config.KnownNonInstancedTerritories.Add(territory);
-            P.Config.KnownInstancedTerritories.Remove(territory);
-            EzConfig.Save();
-        }
-        catch (Exception e) { PluginLog.Warning($"[AutoHunt] 保存副本地图识别失败: {e.Message}"); }
-        PluginLog.Information($"[AutoHunt] 地图 {territory} 确认为「不分线」（已记录，后续进图不再尝试切区）");
+        var k = K(territory);
+        if (k.World == 0) return;
+        if (lineCapableTerritories.Contains(k)) return;
+        if (!nonInstancedTerritories.Add(k)) return;
+        SaveKnowledge();
+        PluginLog.Information($"[AutoHunt] {GetCurrentWorldName()} - 地图 {territory} 确认为「不分线」（已记录，后续进图不再尝试切区）");
     }
 
-    /// <summary>清空全部副本地图识别记录（UI「重置副本地图识别」按钮）。</summary>
+    /// <summary>清空全部服务器×地图的识别记录（UI「重置副本地图识别」按钮）。</summary>
     public static void ResetKnownMaps()
     {
         knowledgeLoaded = true;
@@ -236,12 +332,12 @@ internal static unsafe class InstanceController
         lastKnownLineByTerritory.Clear();
         try
         {
-            P.Config.KnownInstancedTerritories.Clear();
-            P.Config.KnownNonInstancedTerritories.Clear();
+            P.Config.KnownInstancedByWorld.Clear();
+            P.Config.KnownNonInstancedByWorld.Clear();
             EzConfig.Save();
         }
         catch { }
-        PluginLog.Information("[AutoHunt] 已重置副本地图识别记录");
+        PluginLog.Information("[AutoHunt] 已重置副本地图识别记录（全部服务器）");
         Notify.Info("已重置副本地图识别记录。");
     }
 
@@ -272,7 +368,8 @@ internal static unsafe class InstanceController
         var t = territory ?? Svc.ClientState.TerritoryType;
         if (t == 0) return;
         MarkLineCapable(t);
-        lastKnownLineByTerritory[t] = line;
+        var k = K(t);
+        if (k.World != 0) lastKnownLineByTerritory[k] = line;
     }
 
     /// <summary>
@@ -390,7 +487,7 @@ internal static unsafe class InstanceController
             return true;
         }
 
-        var hasEvidence = lineCapableTerritories.Contains(here)
+        var hasEvidence = IsKnownInstanced(here)
             || S.LifestreamIPC.GetInstanceCount() > 1
             || GetNativeInstanceId() > 0;
 
@@ -398,8 +495,9 @@ internal static unsafe class InstanceController
         // 真正切区必有读图过渡或 DR 聊天反馈；两者都没有 = 本图没有可切换的副本区。
         if (elapsed > NoResponseSeconds && !hasEvidence)
         {
-            var n = noResponseCount.TryGetValue(here, out var c) ? c + 1 : 1;
-            noResponseCount[here] = n;
+            var key = K(here);
+            var n = noResponseCount.TryGetValue(key, out var c) ? c + 1 : 1;
+            noResponseCount[key] = n;
             if (n >= NoResponseThreshold)
             {
                 MarkNonInstanced(here);
@@ -469,7 +567,7 @@ internal static unsafe class InstanceController
         if (P.SwitchInProgress || (P.TeleportTo != null && P.TeleportTo.SwitchInstance > 0)) return false;
         if (tp == null || tp.TerritoryId != Svc.ClientState.TerritoryType) return false;
         if (!IsKillCountFull) return false;
-        if (nonInstancedTerritories.Contains(tp.TerritoryId)) return false;
+        if (IsKnownNonInstanced(tp.TerritoryId)) return false;
 
         var cur = GetBestKnownInstanceId();
         if (cur < 1)
@@ -509,6 +607,17 @@ internal static unsafe class InstanceController
         if (S.LifestreamIPC == null) return;
         EnsureKnowledgeLoaded();
 
+        // 服务器变化检测：跨大区/跨服后，原生区号与识别记录都按新服务器重新计算
+        var worldNow = GetCurrentWorldId();
+        if (worldNow != 0 && worldNow != lastWorldId)
+        {
+            if (lastWorldId != 0)
+                PluginLog.Information($"[AutoHunt] 服务器变更：{lastWorldId} → {worldNow}（{GetCurrentWorldName()}），"
+                    + $"副本区识别按服务器隔离（本服务器：有分线 {KnownInstancedCount} 张 / 不分线 {KnownNonInstancedCount} 张）");
+            lastWorldId = worldNow;
+            lastInstanceId = 0;
+        }
+
         // 副本区变化检测（只认非 0 读数变化；0 只是数据未就绪，不代表换区）。
         // 击杀数按「地图+副本区」分桶保存，换区不清零——仅清理对象去重集合
         //（换区后对象表已刷新，对象 ID 可能被复用）。
@@ -521,9 +630,10 @@ internal static unsafe class InstanceController
                 var prev = lastInstanceId;
                 lastInstanceId = instId;
                 var territory = Svc.ClientState.TerritoryType;
-                // 读到非 0 区号 = 该地图确有分线（记录证据 + 记住当前区号，并持久化）
+                // 读到非 0 区号 = 该「服务器 + 地图」确有分线（记录证据 + 记住当前区号，并持久化）
                 MarkLineCapable(territory);
-                lastKnownLineByTerritory[territory] = (int)instId;
+                var k = (worldNow, territory);
+                if (worldNow != 0) lastKnownLineByTerritory[k] = (int)instId;
                 engagedMobIds.Clear();
                 countedMobIds.Clear();
                 skippedMobIds.Clear();

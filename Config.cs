@@ -40,13 +40,14 @@ public class Config : IEzConfig
     /// <summary>自动切换副本区（依赖 Daily Routines 的「快捷副本区切换」/pdr insc）</summary>
     public bool AutoInstance = true;
 
-    /// <summary>已确认存在分线的地图（持久化学习：原生读到过非 0 区号 / Lifestream 已知多区 / DR 切换成功）。
-    /// 这些地图跨图到达后会执行 /pdr insc 1。</summary>
-    public List<uint> KnownInstancedTerritories = new();
+    /// <summary>已确认存在分线的地图，按「服务器 World RowId → 地图 TerritoryType 列表」记录
+    /// （同一张图在不同大区/服务器结论不同，例如晨曦王座-遗产之地有分线、伊修加德-遗产之地没有）。
+    /// 持久化学习来源：原生读到过非 0 区号 / Lifestream 已知多区 / DR 切换成功。</summary>
+    public Dictionary<uint, List<uint>> KnownInstancedByWorld = new();
 
-    /// <summary>已确认不存在分线的地图（持久化学习：发送 /pdr insc 后无任何反应且无分线证据）。
-    /// 这些地图跨图到达后不再尝试切区，直接寻路。</summary>
-    public List<uint> KnownNonInstancedTerritories = new();
+    /// <summary>已确认不存在分线的地图，按「服务器 World RowId → 地图 TerritoryType 列表」记录。
+    /// 这些地图在该服务器上不再尝试切区，直接寻路。</summary>
+    public Dictionary<uint, List<uint>> KnownNonInstancedByWorld = new();
 
     /// <summary>上坐骑（vnavmesh 寻路前）</summary>
     public bool UseMount = true;

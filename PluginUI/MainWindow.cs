@@ -631,15 +631,19 @@ public class MainWindow : ConfigWindow
         RowEnd();
         ImGui.TextColored(ColSub, "依赖 Daily Routines（DR）插件的「快捷副本区切换」模块（/pdr insc）。");
         ImGui.TextColored(ColSub, "击杀数按「地图+副本区」独立统计，换图/换区不清零。");
+        var knownWorld = InstanceController.GetCurrentWorldName();
         ImGui.TextColored(ColSub,
-            $"已识别地图：有分线 {InstanceController.KnownInstancedCount} 张 / 不分线 {InstanceController.KnownNonInstancedCount} 张"
-            + "（不分线地图进图后不再尝试切区，直接寻路）");
+            $"已识别（{(knownWorld.IsNullOrEmpty() ? "当前服务器" : knownWorld)}）："
+            + $"有分线 {InstanceController.KnownInstancedCount} 张 / 不分线 {InstanceController.KnownNonInstancedCount} 张"
+            + (InstanceController.KnownWorldCount > 1 ? $"（共 {InstanceController.KnownWorldCount} 个服务器）" : ""));
+        ImGui.TextColored(ColSub, "识别按「服务器 + 地图」分别记录：同一张图在不同大区结论可以不同，"
+            + "不分线地图进图后不再尝试切区，直接寻路。");
         if (GhostButton("##gbResetMaps", IcRefresh, "重置副本地图识别"))
         {
             InstanceController.ResetKnownMaps();
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("清空「哪些地图有分线」的学习记录，下次进图会重新探测（每次最多 8 秒）");
+            ImGui.SetTooltip("清空全部「服务器 × 地图」的识别记录，下次进图会重新探测（每次最多 8 秒）");
 
         // 流程参数
         Sect("流程参数");
