@@ -25,19 +25,21 @@ internal static class InstanceMapDefaults
     /// <summary>国服大区 → 服务器名单（顺序即 UI 显示顺序）。</summary>
     public static readonly (string Dc, string[] Servers)[] DcServers =
     {
-        ("陆行鸟", new[] { "拉诺西亚", "幻影群岛", "神意之地", "萌芽池", "宇宙和音", "沃仙曦染", "晨曦王座" }),
+        ("陆行鸟", new[] { "红玉海", "拉诺西亚", "幻影群岛", "神意之地", "萌芽池", "宇宙和音", "沃仙曦染", "晨曦王座" }),
         ("莫古力", new[] { "潮风亭", "神拳痕", "白银乡", "白金幻象", "旅人栈桥", "拂晓之间", "龙巢神殿", "梦羽宝境" }),
         ("猫小胖", new[] { "紫水栈桥", "延夏", "静语庄园", "摩杜纳", "海猫茶屋", "柔风海湾", "琥珀原" }),
         ("豆豆柴", new[] { "水晶塔", "银泪湖", "太阳海岸", "伊修加德", "红茶川" }),
     };
 
-    /// <summary>文档覆盖的国服服务器（4 个大区共 27 个）。</summary>
+    /// <summary>文档覆盖的国服服务器（4 个大区共 28 个）。</summary>
     public static readonly string[] Servers =
         DcServers.SelectMany(d => d.Servers).ToArray();
 
-    /// <summary>文档中标记为「有分区」的组合（目前只有陆行鸟 7 个服务器的遗产之地）。</summary>
+    /// <summary>文档中标记为「有分区」的组合（陆行鸟 8 个服务器的遗产之地）。
+    /// 注：红玉海为文档遗漏后补充，同样只有遗产之地有分区。</summary>
     private static readonly HashSet<(string World, string Map)> lineCapable = new()
     {
+        ("红玉海", "遗产之地"),
         ("拉诺西亚", "遗产之地"),
         ("幻影群岛", "遗产之地"),
         ("神意之地", "遗产之地"),
@@ -53,7 +55,7 @@ internal static class InstanceMapDefaults
     private static readonly HashSet<string> coveredWorlds =
         new(Servers, StringComparer.Ordinal);
 
-    /// <summary>该服务器是否被文档收录（国服 27 个服务器之一）。</summary>
+    /// <summary>该服务器是否被文档收录（国服 28 个服务器之一）。</summary>
     public static bool IsCoveredWorld(string worldName)
         => !worldName.IsNullOrEmpty() && coveredWorlds.Contains(worldName);
 
