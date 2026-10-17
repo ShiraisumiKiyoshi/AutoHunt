@@ -24,6 +24,11 @@ public partial class MainWindow
     private static List<(string Dc, List<(uint Id, string Name)> Worlds)> GetWorldTree()
     {
         if (editWorldTree != null) return editWorldTree;
+
+        // 只收国服四大区：客户端的 World 表含全部国际服服务器（如 Aether/Adamantoise），
+        // 副本区识别只针对国服，其余大区一律不列出。
+        string[] cnDcs = { "陆行鸟", "莫古力", "猫小胖", "豆豆柴" };
+
         var tree = new List<(string Dc, List<(uint Id, string Name)> Worlds)>();
         try
         {
@@ -33,7 +38,7 @@ public partial class MainWindow
                 if (name.IsNullOrEmpty()) continue;
                 if (!w.IsPublic) continue; // 跳过测试/开发服
                 var dc = w.DataCenter.ValueNullable?.Name.ToString();
-                if (dc.IsNullOrEmpty()) continue;
+                if (dc.IsNullOrEmpty() || Array.IndexOf(cnDcs, dc) < 0) continue;
 
                 var idx = tree.FindIndex(d => d.Dc == dc);
                 if (idx < 0)
@@ -49,16 +54,8 @@ public partial class MainWindow
             PluginLog.Warning($"[AutoHunt] 读取大区/服务器列表失败: {e.Message}");
         }
 
-        // 国服四大区排前面，其余按名称排序
-        string[] preferred = { "陆行鸟", "莫古力", "猫小胖", "豆豆柴" };
-        tree.Sort((a, b) =>
-        {
-            var ai = Array.IndexOf(preferred, a.Dc);
-            var bi = Array.IndexOf(preferred, b.Dc);
-            if (ai < 0) ai = int.MaxValue;
-            if (bi < 0) bi = int.MaxValue;
-            return ai != bi ? ai.CompareTo(bi) : string.CompareOrdinal(a.Dc, b.Dc);
-        });
+        // 按国服大区固定顺序排列，服务器按名称排序
+        tree.Sort((a, b) => Array.IndexOf(cnDcs, a.Dc).CompareTo(Array.IndexOf(cnDcs, b.Dc)));
         foreach (var (_, worlds) in tree)
             worlds.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
 
@@ -120,6 +117,15 @@ public partial class MainWindow
         ImGui.TextColored(ColSub, "选择大区 / 服务器 / 地图版本号，逐张设置该服务器上是否有副本区。");
         ImGui.TextColored(ColSub, "默认值来自腾讯文档《副本地图识别表》；标为「未识别」的地图进图后会探测一次，识别结果会自动写回这里。");
         ImGui.Dummy(new Vector2(0, 4));
+
+        // 与主窗口一致的控件配色（按钮不推色会走到 Dalamud 主题默认色，与改版窗口风格不符）
+        ImGui.PushStyleColor(ImGuiCol.Button, C(255, 255, 255, 18));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, C(255, 255, 255, 31));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, C(255, 255, 255, 41));
+        ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, C(255, 255, 255, 14));
+        ImGui.PushStyleColor(ImGuiCol.TableBorderStrong, C(255, 255, 255, 22));
+        ImGui.PushStyleColor(ImGuiCol.TableBorderLight, C(255, 255, 255, 12));
+        const int styledPops = 6;
 
         // ===== 大区 =====
         ImGui.SetNextItemWidth(150);
@@ -232,8 +238,17 @@ public partial class MainWindow
         ImGui.TextColored(ColSub, $"本版本共 {maps.Length} 张地图，已有分区状态 {configured} 张");
         ImGui.SameLine();
         ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 130);
+
+        ImGui.PopStyleColor(styledPops);
+
+        // 主按钮：与主窗口强调色一致的实心按钮
+        ImGui.PushStyleColor(ImGuiCol.Button, ColAccent);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Rgba(ColAccent, 0.85f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, Rgba(ColAccent, 0.7f));
+        ImGui.PushStyleColor(ImGuiCol.Text, C(10, 18, 26, 255));
         if (ImGui.Button("关闭", new Vector2(110, 0)))
             editMapOpen = false;
+        ImGui.PopStyleColor(4);
 
         ImGui.EndPopup();
     }

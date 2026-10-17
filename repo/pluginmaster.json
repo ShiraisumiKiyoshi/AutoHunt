@@ -3,7 +3,7 @@
     "Author": "雷霆大宝贝",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.29",
+    "AssemblyVersion": "2.4.0.30",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.29.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.29.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.29.zip",
-    "LastUpdate": 1792213242,
-    "Changelog": "v2.4.0.29 修复三条会把分区信息记错的路径 + 新增手动编辑分区 + 统计口径改为角色原始区服：1) 去掉「看到读图过渡就判定切区成功」的判定——传送到水晶/落地都会触发过渡，旧版会把不分线地图误标成有分线；2) DR 的「当前所在副本区为…」只在插件自己发起的切区进行中采信，避免别的来源触发 /pdr insc 时污染识别；3) 「无响应→不分线」不再把 Lifestream 区数当证据（它按地图单键、不区分大区），且只在探测 1 号区时推断——目标为 2 号及以后时无响应只代表已是最后一个副本区，不会把有分线的地图标成不分线；4) 新增《编辑副本地图识别》：狩猎页「副本区切换 → 重置副本地图识别」右侧新增按钮，弹窗按「大区→服务器→地图版本号」列出该版本全部地图，可逐张设置有/无分区或恢复默认；默认值取自腾讯文档《副本地图识别表》，未收录的显示未识别，手动值优先于自动识别；5) 已有分区状态（手动/自动/文档默认）的地图不再自动探测，只有状态为空的地图才在进图时探测一次，识别成功后自动写回并标记为「自动识别」；6) 统计上报改为角色原始服务器/大区（HomeWorld），跨区不再产生多条记录，并新增当前所在服务器字段（统计网站同步新增【当前服务器】列，并按角色名合并旧数据里的跨区重复行）。"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.30.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.30.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.30.zip",
+    "LastUpdate": 1792214233,
+    "Changelog": "v2.4.0.30 修复《编辑副本地图识别》弹窗：1) 大区/服务器下拉框现在只列国服四大区（陆行鸟/莫古力/猫小胖/豆豆柴）的服务器，不再混入国际服条目（此前会显示 Aether/Adamantoise 等英文服务器，且对这些服务器做的设置毫无意义）；2) 弹窗内按钮、表格配色与主窗口统一（此前按钮跟随 Dalamud 主题默认色），关闭按钮改为主色调实心样式。"
   }
 ]
