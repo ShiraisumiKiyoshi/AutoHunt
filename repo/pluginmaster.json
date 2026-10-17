@@ -3,7 +3,7 @@
     "Author": "雷霆大宝贝",
     "Name": "AutoHunt",
     "InternalName": "AutoHunt",
-    "AssemblyVersion": "2.4.0.34",
+    "AssemblyVersion": "2.4.0.35",
     "Punchline": "自动狩猎车助手",
     "Description": "自动狩猎（狩猎车）助手：右键聊天玩家名设为车头；自动解析车头在任何频道发送的坐标，自动打开地图插旗；跨图或远距离自动传送到最近水晶；传送到新地图后可切副本区时自动切 1 号区，并结合内置狩猎怪出生点数据库自动走向出生点；到达后自动选中并监控狩猎怪（基于 NotoriousMonster 数据表识别 A/S 级），血量低于阈值自动下坐骑并 /rotation Manual 输出，目标死亡自动关闭；每击杀 N 只怪自动切换副本区；一键创建怪物狩猎招募（可选青魔占位与自由留言）；取消车头后按狩猎时间表自动跨区（需 Lifestream），可传送至配置水晶并自动开启招募。依赖：vnavmesh（必需）、RotationSolver、Lifestream。",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     ],
     "RepoUrl": "https://github.com/ShiraisumiKiyoshi/AutoHunt",
     "IconUrl": "https://raw.githubusercontent.com/ShiraisumiKiyoshi/AutoHunt/main/dist/images/icon.png",
-    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.34.zip",
-    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.34.zip",
-    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.34.zip",
-    "LastUpdate": 1792239489,
-    "Changelog": "v2.4.0.34 修复《编辑副本地图识别》的服务器列表：1) 服务器列表改为按游戏数据表里真实的大区字段分组构建，同名世界行去重（豆豆柴此前每个服务器重复两遍，因为表里存在旧行 + 当前行两套同名数据）；2) 自动排除占位世界行（陆行鸟s-bella / 鲶鱼精 / 与大区同名的行）与旧行（大区为 Unknown）；3) 补回莫古力大区的「拂晓之间」（所有地图默认无分区），并会列出数据表里存在、文档暂未收录的服务器（默认未识别，进图自动探测）；4) 启动日志会输出每个大区实际解析到的服务器数量，以及名单里找不到的服务器，便于核对。"
+    "DownloadLinkInstall": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.35.zip",
+    "DownloadLinkUpdate": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.35.zip",
+    "DownloadLinkTesting": "https://testingcf.jsdelivr.net/gh/ShiraisumiKiyoshi/AutoHunt@main/repo/AutoHunt-2.4.0.35.zip",
+    "LastUpdate": 1792239923,
+    "Changelog": "v2.4.0.35 服务器列表只保留正式服务器：去掉数据表里存在但并非正式服的世界行（如豆豆柴的「亚马乌罗提」），列表与腾讯文档《副本地图识别表》保持一致；日志会记录被忽略的名单外世界行，便于后续核对。"
   }
 ]

@@ -59,16 +59,18 @@ public partial class MainWindow
             PluginLog.Warning($"[AutoHunt] 读取服务器列表失败: {e.Message}");
         }
 
-        // 组装：大区按固定顺序；服务器按腾讯文档名单顺序排列，名单里没有的（如新服）排最后
+        // 组装：大区按固定顺序；服务器**只保留腾讯文档名单里的**（名单顺序）。
+        // 数据表里还有若干非正式服的世界行（如豆豆柴的「亚马乌罗提」），不列出。
         var result = new List<(string Dc, List<(uint Id, string Name)> Worlds)>();
+        var ignoredExtras = new List<string>();
         foreach (var (dc, docServers) in InstanceMapDefaults.DcServers)
         {
             if (!groups.TryGetValue(dc, out var map) || map.Count == 0) continue;
             var worlds = new List<(uint Id, string Name)>();
             foreach (var s in docServers)
                 if (map.Remove(s, out var row)) worlds.Add(row);
-            worlds.AddRange(map.Values.OrderBy(r => r.Name, StringComparer.Ordinal));
-            result.Add((dc, worlds));
+            ignoredExtras.AddRange(map.Values.Select(r => $"{dc}-{r.Name}"));
+            if (worlds.Count > 0) result.Add((dc, worlds));
 
             var missing = docServers.Where(s => !worlds.Any(w => w.Name == s)).ToArray();
             if (missing.Length > 0)
@@ -106,7 +108,9 @@ public partial class MainWindow
 
         PluginLog.Information("[AutoHunt] 编辑副本地图识别："
             + string.Join("，", result.Select(t => $"{t.Dc} {t.Worlds.Count} 服"))
-            + $"（忽略占位/旧世界行 {dropped} 条）");
+            + $"（忽略占位/旧世界行 {dropped} 条"
+            + (ignoredExtras.Count > 0 ? "；名单外的世界行：" + string.Join("、", ignoredExtras) : "")
+            + "）");
 
         editWorldTree = result;
         return result;
